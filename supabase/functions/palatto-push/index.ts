@@ -54,10 +54,13 @@ Deno.serve(async request => {
       if (!publicKey || !privateKey) return reply({ error: 'Notificaciones sin configurar' }, 503)
       const { data: recipients, error: recipientsError } = await admin.from('profiles').select('id').eq('active', true).neq('id', user.id)
       if (recipientsError) throw recipientsError
-      if (!recipients?.length) return reply({ sent: 0 })
+      if (!recipients?.length) return reply({ sent: 0, attempted: 0, reason: 'no_recipients' })
       const { data: subscriptions, error: subscriptionsError } = await admin.from('push_subscriptions').select('id,endpoint,p256dh,auth').in('user_id', recipients.map(person => person.id))
       if (subscriptionsError) throw subscriptionsError
-      webpush.setVapidDetails(subject, publicKey, privateKey)
+      if (!subscriptions?.length) return reply({ sent: 0, attempted: 0, reason: 'no_subscriptions' })
+      try { webpush.setVapidDetails(subject, publicKey, privateKey) }
+      catch { return reply({ error: 'Las claves VAPID configuradas no forman un par válido.' }, 503) }
+      const failureStatuses: number[] = []
       const results = await Promise.all((subscriptions || []).map(async subscription => {
         if (!allowedEndpoint(subscription.endpoint)) return false
         try {
@@ -66,11 +69,14 @@ Deno.serve(async request => {
           return true
         } catch (error) {
           const status = Number((error as { statusCode?: number }).statusCode || 0)
+          failureStatuses.push(status)
           if (status === 404 || status === 410) await admin.from('push_subscriptions').delete().eq('id', subscription.id)
           return false
         }
       }))
-      return reply({ sent: results.filter(Boolean).length })
+      const sent = results.filter(Boolean).length
+      if (!sent) console.warn('Palatto push delivery failed', { attempted: subscriptions.length, statuses: failureStatuses })
+      return reply({ sent, attempted: subscriptions.length, ...(sent ? {} : { reason: 'delivery_failed', statuses: failureStatuses }) })
     }
 
     return reply({ error: 'Acción desconocida' }, 400)

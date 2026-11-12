@@ -66,7 +66,7 @@ export function useRestaurant() {
         const t = setTimeout(() => setNotice(''), 4500);
         return () => clearTimeout(t);
     } }, [notice]);
-    async function run(action: () => Promise<void> | void, message: string) {
+    async function run(action: () => Promise<void> | void, message: string | (() => string)) {
         if (lock.current)
             return false;
         lock.current = true;
@@ -80,7 +80,7 @@ export function useRestaurant() {
                 setError('Guardado. No se pudo actualizar la pantalla; no repitas la operación.');
                 setLoading(false);
             }
-            setNotice(message);
+            setNotice(typeof message === 'function' ? message() : message);
             return true;
         }
         catch (e) {
@@ -122,7 +122,7 @@ export function useRestaurant() {
         }
     }
     return {
-        data, profile, role, loading, busy, error, notice, setError,
+        data, profile, role, loading, busy, error, notice, setError, setNotice,
         login: (email: string, password: string) => run(async () => { if (!supabase)
             throw new Error('No se pudo conectar. Contacta al administrador.'); const { error } = await supabase.auth.signInWithPassword({ email: email.trim(), password }); if (error)
             throw error; }, 'Sesión iniciada'),
@@ -144,23 +144,37 @@ export function useRestaurant() {
             if (result?.error) throw new Error(result.error);
             return result;
         },
-        saveOrder: (customer: string, notes: string, items: Item[], order?: Order, reason = '', received = 0, receipt: string | null = null, takeaway = false) => run(async () => {
-            writer();
-            checkItems(items, order?.items);
-            if (!customer.trim())
-                throw new Error('Escribe la mesa o el nombre del cliente.');
-            if (order && !canEdit(role, order))
-                throw new Error('No tienes permiso para editar este pedido.');
-            if (order && reason.trim().length < 3)
-                throw new Error('Escribe el motivo de la corrección.');
-            if (order?.paid && total(items) !== total(order.items))
-                validatePayment(total(items) - total(order.items), order.method!, received, receipt);
-            {
+        saveOrder: (customer: string, notes: string, items: Item[], order?: Order, reason = '', received = 0, receipt: string | null = null, takeaway = false) => {
+            let pushResult: { sent?: number; attempted?: number; reason?: string } | null = null;
+            let pushFailed = false;
+            return run(async () => {
+                writer();
+                checkItems(items, order?.items);
+                if (!customer.trim())
+                    throw new Error('Escribe la mesa o el nombre del cliente.');
+                if (order && !canEdit(role, order))
+                    throw new Error('No tienes permiso para editar este pedido.');
+                if (order && reason.trim().length < 3)
+                    throw new Error('Escribe el motivo de la corrección.');
+                if (order?.paid && total(items) !== total(order.items))
+                    validatePayment(total(items) - total(order.items), order.method!, received, receipt);
                 const args = { p_takeaway: takeaway, p_customer: customer, p_notes: notes, p_items: items.map(i => ({ product_id: i.product_id, quantity: i.quantity })) };
                 await rpc(order ? 'edit_order' : 'create_order', order ? { ...args, p_id: order.id, p_version: order.version, p_reason: reason, p_received: received, p_receipt: receipt } : args);
-            }
-            if (!order && supabase) try { await supabase.functions.invoke('palatto-push', { body: { action: 'notify_new_order' } }); } catch { /* Push delivery must not undo an order. */ }
-        }, order ? 'Pedido actualizado. Ajustes registrados por caja.' : 'Pedido enviado a la cola'),
+                if (!order && supabase) try {
+                    const { data: result, error } = await supabase.functions.invoke('palatto-push', { body: { action: 'notify_new_order' } });
+                    if (error || result?.error) throw error || new Error(result.error);
+                    pushResult = result as typeof pushResult;
+                } catch { pushFailed = true; /* Push delivery must not undo an order. */ }
+            }, () => {
+                if (order) return 'Pedido actualizado. Ajustes registrados por caja.';
+                if (pushFailed) return 'Pedido creado, pero no se pudo enviar el aviso push.';
+                if (!pushResult || (pushResult.sent || 0) === 0) {
+                    if ((pushResult?.attempted || 0) > 0) return 'Pedido creado, pero el servicio rechazó el aviso. Revisa que las claves VAPID coincidan.';
+                    return 'Pedido creado. Activa notificaciones en otro teléfono o cuenta para recibir avisos.';
+                }
+                return `Pedido creado. Aviso enviado a ${pushResult.sent} dispositivo${pushResult.sent === 1 ? '' : 's'}.`;
+            });
+        },
 
         pay: (order: Order, method: Method, received: number, receipt: string | null, amount = total(order.items), reason = '') => run(async () => {
             writer();

@@ -847,23 +847,30 @@ dialog.native-dialog.dialog-large {
 .toast {
   position: fixed;
   left: 50%;
-  bottom: calc(96px + var(--safe-bottom));
-  z-index: 70;
+  top: calc(14px + var(--safe-top));
+  z-index: 120;
   transform: translateX(-50%);
   display: flex;
   align-items: center;
-  gap: 8px;
-  max-width: calc(100% - 32px);
-  padding: 12px 16px;
-  border-radius: 999px;
-  background: var(--ink);
-  color: #fff8ee;
-  font-size: .84rem;
-  font-weight: 700;
-  box-shadow: var(--shadow-2);
+  gap: 11px;
+  width: min(540px, calc(100vw - 28px));
+  padding: 12px 13px;
+  border: 1px solid var(--line);
+  border-left: 4px solid var(--green);
+  border-radius: 16px;
+  background: color-mix(in oklab, var(--surface) 96%, white);
+  color: var(--ink);
+  box-shadow: 0 16px 42px rgb(36 31 26 / 18%), 0 2px 8px rgb(36 31 26 / 8%);
+  backdrop-filter: blur(14px);
   animation: toast-in .22s ease;
 }
-@keyframes toast-in { from { opacity: 0; transform: translate(-50%, 8px); } to { opacity: 1; transform: translate(-50%, 0); } }
+.toast-icon { display: grid; place-items: center; width: 36px; height: 36px; flex: 0 0 auto; border-radius: 12px; background: var(--green-soft); color: var(--green); }
+.toast-copy { display: grid; min-width: 0; gap: 1px; flex: 1; }
+.toast-copy strong { color: var(--green-dark); font-family: var(--font-display); font-size: .78rem; line-height: 1.2; }
+.toast-copy > span { color: var(--ink-soft); font-size: .78rem; font-weight: 650; line-height: 1.35; }
+.toast-close { display: grid; place-items: center; width: 32px; height: 32px; flex: 0 0 auto; border: 0; border-radius: 10px; background: transparent; color: var(--muted); }
+.toast-close:hover { background: var(--surface-2); color: var(--ink); }
+@keyframes toast-in { from { opacity: 0; transform: translate(-50%, -8px); } to { opacity: 1; transform: translate(-50%, 0); } }
 
 /* ------------------------------------------------------ login/loading */
 

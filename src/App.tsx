@@ -181,7 +181,11 @@ export default function App() {
       </button>)}
     </nav>}
 
-    {app.notice && <div className="toast" role="status"><CheckCheck size={18}/>{app.notice}</div>}
+    {app.notice && <div className="toast" role="status" aria-live="polite">
+      <span className="toast-icon"><CheckCheck size={19}/></span>
+      <span className="toast-copy"><strong>Listo</strong><span>{app.notice}</span></span>
+      <button className="toast-close" type="button" aria-label="Cerrar notificación" onClick={() => app.setNotice('')}><X size={17}/></button>
+    </div>}
   </div>
 }
 
