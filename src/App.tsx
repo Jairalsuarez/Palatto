@@ -777,10 +777,11 @@ function Cash({ app, business, back, openDrinks }: { app: Restaurant; business: 
   const [transferId, setTransferId] = useState(() => crypto.randomUUID())
   const [form, setForm] = useState<'ingreso' | 'gasto' | 'retiro' | 'transferir' | null>(null)
   const [method, setMethod] = useState<Method>('efectivo')
+  const [movementBusiness, setMovementBusiness] = useState<Business>(business)
   const [amount, setAmount] = useState('')
   const [reason, setReason] = useState('')
 
-  const movements = app.data.movements.filter(movement => movement.business === business)
+  const movements = app.data.movements.filter(movement => business === 'palatto' || movement.business === business)
   const balance = (method: Method) => movements.filter(movement => movement.method === method).reduce((sum, movement) => sum + movement.amount, 0)
 
   function closeForm() {
@@ -788,7 +789,15 @@ function Cash({ app, business, back, openDrinks }: { app: Restaurant; business: 
     setAmount('')
     setReason('')
     setTransferId(crypto.randomUUID())
+    setMovementBusiness(business)
   }
+
+  function openForm(next: 'ingreso' | 'gasto' | 'retiro' | 'transferir') {
+    setMovementBusiness(business)
+    setForm(next)
+    setMethod('efectivo')
+  }
+  const targetBusiness = business === 'palatto' ? movementBusiness : business
 
   return <>
     <div className="subpage-bar">
@@ -797,7 +806,7 @@ function Cash({ app, business, back, openDrinks }: { app: Restaurant; business: 
     </div>
 
     <section className="balance-card">
-      <div className="balance-top"><span>Saldo en caja</span><span className="balance-state">Disponible</span></div>
+      <div className="balance-top"><span>{business === 'palatto' ? 'Saldo total del negocio' : 'Saldo de aguas y colas'}</span><span className="balance-state">Disponible</span></div>
       <strong>{money(balance('efectivo') + balance('transferencia'))}</strong>
       <div className="balance-split">
         <span><Banknote size={16}/>Efectivo<b>{money(balance('efectivo'))}</b></span>
@@ -813,10 +822,10 @@ function Cash({ app, business, back, openDrinks }: { app: Restaurant; business: 
 
     {canCash(app.role, business)
       ? <div className="cash-actions">
-          <button className="cash-action in" onClick={() => { setForm('ingreso'); setMethod('efectivo') }}><Plus size={20}/>Ingresar</button>
-          <button className="cash-action expense" onClick={() => { setForm('gasto'); setMethod('efectivo') }}><ShoppingBag size={20}/>Gasto</button>
-          <button className="cash-action out" onClick={() => { setForm('retiro'); setMethod('efectivo') }}><ArrowDownLeft size={20}/>Retirar</button>
-          {app.role === 'superadmin' && <button className="cash-action move" onClick={() => { setForm('transferir'); setMethod('efectivo') }}><ArrowRight size={20}/>Transferir</button>}
+          <button className="cash-action in" onClick={() => openForm('ingreso')}><Plus size={20}/>Ingresar</button>
+          <button className="cash-action expense" onClick={() => openForm('gasto')}><ShoppingBag size={20}/>Gasto</button>
+          <button className="cash-action out" onClick={() => openForm('retiro')}><ArrowDownLeft size={20}/>Retirar</button>
+          {app.role === 'superadmin' && <button className="cash-action move" onClick={() => openForm('transferir')}><ArrowRight size={20}/>Transferir</button>}
         </div>
       : <p className="alert alert-info"><ShieldCheck size={17}/>Solo Administrador y Superadmin ajustan esta caja. Los cobros entran automáticamente.</p>}
 
@@ -829,7 +838,7 @@ function Cash({ app, business, back, openDrinks }: { app: Restaurant; business: 
         : <ul className="movement-list">
             {[...movements].sort((a, b) => b.created_at.localeCompare(a.created_at)).map(movement => <li className="movement" key={movement.id}>
               <span className={`movement-icon ${movement.amount < 0 ? 'out' : ''}`}>{movement.amount < 0 ? <ArrowUpRight size={18}/> : <ArrowRight size={18}/>}</span>
-              <div><strong>{movement.reason}</strong><small>{movementKindLabel(movement.kind)} · {dateTime(movement.created_at)} · {movement.method === 'efectivo' ? 'Efectivo' : 'Transferencia'}</small></div>
+              <div><strong>{movement.reason}</strong><small>{movementKindLabel(movement.kind)}{business === 'palatto' ? ` · ${businessLabel(movement.business)}` : ''} · {dateTime(movement.created_at)} · {movement.method === 'efectivo' ? 'Efectivo' : 'Transferencia'}</small></div>
               <b className={movement.amount < 0 ? 'negative' : 'positive'}>{movement.amount > 0 ? '+' : '−'}{money(Math.abs(movement.amount))}</b>
             </li>)}
           </ul>}
@@ -840,11 +849,12 @@ function Cash({ app, business, back, openDrinks }: { app: Restaurant; business: 
         event.preventDefault()
         const value = cents(amount)
         const done = form === 'transferir'
-          ? await app.transfer(transferId, business, value, method, reason)
-          : await app.cash(business, form === 'retiro' || form === 'gasto' ? -value : value, method, reason, form)
+          ? await app.transfer(transferId, targetBusiness, value, method, reason)
+          : await app.cash(targetBusiness, form === 'retiro' || form === 'gasto' ? -value : value, method, reason, form)
         if (done) closeForm()
       }}>
-        {form === 'transferir' && <p className="alert alert-info">Destino: <strong>{business === 'palatto' ? 'Caja de aguas y colas' : 'Caja principal'}</strong></p>}
+        {business === 'palatto' && <label>Caja<select value={movementBusiness} onChange={event => setMovementBusiness(event.target.value as Business)}><option value="palatto">Caja principal</option><option value="carreta">Aguas y colas</option></select></label>}
+        {form === 'transferir' && <p className="alert alert-info">Destino: <strong>{targetBusiness === 'palatto' ? 'Caja de aguas y colas' : 'Caja principal'}</strong></p>}
         {form === 'gasto' && <p className="alert alert-info">Un gasto es una salida para comprar algo. Un retiro es sacar dinero del negocio.</p>}
         <label>Importe ($)<input type="number" inputMode="decimal" step="0.01" min="0.01" max="1000000" required value={amount} onChange={event => setAmount(event.target.value)} placeholder="0.00" autoFocus/></label>
         <label>Medio<select value={method} onChange={event => setMethod(event.target.value as Method)}>
@@ -864,7 +874,7 @@ function Cash({ app, business, back, openDrinks }: { app: Restaurant; business: 
 const reportDate = (value: string) => new Intl.DateTimeFormat('en-CA', { timeZone: 'America/Guayaquil', year: 'numeric', month: '2-digit', day: '2-digit' }).format(new Date(value))
 function DailyReport({ app, business }: { app: Restaurant; business: Business }) {
   const [day, setDay] = useState(() => reportDate(new Date().toISOString()))
-  const records = app.data.movements.filter(movement => movement.business === business && reportDate(movement.created_at) === day)
+  const records = app.data.movements.filter(movement => (business === 'palatto' || movement.business === business) && reportDate(movement.created_at) === day)
   const kinds: MovementKind[] = ['cobro', 'ingreso', 'gasto', 'retiro', 'correccion', 'transferencia']
   return <details className="daily-report">
     <summary>Reporte del día<span>{new Date(day + 'T12:00:00').toLocaleDateString('es-EC', { day: 'numeric', month: 'short' })}</span></summary>
@@ -891,15 +901,24 @@ function DailySummary({ app, onCash }: { app: Restaurant; onCash: (business: Bus
   const sum = (kind: MovementKind) => movements.filter(movement => movement.kind === kind).reduce((value, movement) => value + movement.amount, 0)
   const sales = sum('cobro')
   const expenses = Math.max(0, -sum('gasto'))
-  const cashBalance = app.data.movements.filter(movement => movement.business === 'palatto').reduce((value, movement) => value + movement.amount, 0)
+  const cashBalance = app.data.movements.reduce((value, movement) => value + movement.amount, 0)
+  const balanceByMethod = (method: Method) => app.data.movements.filter(movement => movement.method === method).reduce((value, movement) => value + movement.amount, 0)
+  const collectedByMethod = (method: Method) => movements.filter(movement => movement.kind === 'cobro' && movement.method === method).reduce((value, movement) => value + movement.amount, 0)
+  const drinksTransfers = movements.filter(movement => movement.business === 'carreta' && movement.kind === 'cobro' && movement.method === 'transferencia').reduce((value, movement) => value + movement.amount, 0)
   const chartMax = Math.max(sales, expenses, cashBalance, 1)
   return <div className="daily-summary-page">
     <div className="page-heading"><div><p className="eyebrow">Palatto · {new Date(todayKey + 'T12:00:00').toLocaleDateString('es-EC', { weekday: 'long', day: 'numeric', month: 'long' })}</p><h1>Resumen del día</h1></div></div>
     <div className="daily-summary-grid">
-      <article className="daily-summary-stat sales"><small>Vendido hoy</small><strong>{money(sales)}</strong></article>
-      <article className="daily-summary-stat cash"><small>Hay en caja</small><strong>{money(cashBalance)}</strong></article>
+      <article className="daily-summary-stat sales"><small>Cobrado hoy</small><strong>{money(sales)}</strong></article>
+      <article className="daily-summary-stat cash"><small>Saldo de ambas cajas</small><strong>{money(cashBalance)}</strong></article>
       <article className="daily-summary-stat expenses"><small>Gastado hoy</small><strong>{money(expenses)}</strong></article>
     </div>
+    <section className="summary-payment-breakdown" aria-label="Desglose de efectivo y transferencias">
+      <div><h2>Cobros de hoy</h2><p><span><Banknote size={16}/>Efectivo</span><b>{money(collectedByMethod('efectivo'))}</b></p><p><span><CreditCard size={16}/>Transferencias</span><b>{money(collectedByMethod('transferencia'))}</b></p>
+        {drinksTransfers > 0 && <small>{money(drinksTransfers)} de la transferencia corresponde a aguas y colas, registrada como transferencia.</small>}
+      </div>
+      <div><h2>Saldo disponible</h2><p><span><Banknote size={16}/>Efectivo</span><b>{money(balanceByMethod('efectivo'))}</b></p><p><span><CreditCard size={16}/>Transferencias</span><b>{money(balanceByMethod('transferencia'))}</b></p></div>
+    </section>
     <section className="summary-figure" aria-label="Gráfica de ventas, saldo en caja y gastos"><div className="summary-figure-heading"><div><span className="eyebrow">Vista rápida</span><h2>Así va el día</h2></div><span className="summary-figure-mark"><BarChart3 size={19}/></span></div>
       {[['Vendido', sales, 'sales'], ['En caja', cashBalance, 'cash'], ['Gastado', expenses, 'expenses']].map(([label, value, style]) => <div className="summary-bar-row" key={String(label)}><div><span>{label}</span><b>{money(Number(value))}</b></div><span className="summary-bar-track"><i className={String(style)} style={{ width: `${Math.max(2, Number(value) / chartMax * 100)}%` }}/></span></div>)}
     </section>

@@ -1581,6 +1581,12 @@ dialog.native-dialog.dialog-large {
 .daily-summary-stat.cash { border-color: color-mix(in oklab, var(--copper) 35%, var(--line)); background: color-mix(in oklab, var(--copper-soft) 32%, var(--surface)); }
 .daily-summary-stat.net { grid-column: 1 / -1; background: var(--ink); color: var(--surface); }
 .daily-summary-stat.net > small, .daily-summary-stat.net > span { color: color-mix(in oklab, var(--surface) 70%, transparent); }
+.summary-payment-breakdown { display: grid; grid-template-columns: 1fr 1fr; gap: 18px; margin: 10px 0; padding: 14px; border: 1px solid var(--line); border-radius: 16px; background: var(--surface); }
+.summary-payment-breakdown h2 { margin: 0 0 7px; color: var(--muted); font-size: .72rem; font-weight: 800; letter-spacing: .045em; text-transform: uppercase; }
+.summary-payment-breakdown p { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin: 0; padding: 5px 0; font-size: .8rem; }
+.summary-payment-breakdown p span { display: inline-flex; align-items: center; gap: 6px; color: var(--muted); }
+.summary-payment-breakdown p b { font-variant-numeric: tabular-nums; }
+.summary-payment-breakdown > div > small { display: block; margin-top: 6px; color: var(--muted); font-size: .7rem; line-height: 1.35; }
 .summary-figure { display: grid; gap: 13px; margin: 12px 0; padding: 16px; border: 1px solid var(--line); border-radius: 18px; background: var(--surface); }
 .summary-figure-heading { display: flex; align-items: center; justify-content: space-between; margin-bottom: 2px; }
 .summary-figure-heading h2 { margin-top: 3px; font-family: var(--font-display); font-size: 1rem; }
@@ -1849,6 +1855,7 @@ dialog.native-dialog.dialog-large {
 .simple-spend-breakdown strong { font-variant-numeric: tabular-nums; }
 .add-first-hint { padding: 12px; color: var(--muted); font-size: .82rem; }
 @media (max-width: 480px) {
+  .summary-payment-breakdown { grid-template-columns: 1fr; gap: 12px; }
   .simple-supply-row { grid-template-columns: minmax(0, 1fr) auto; gap: 8px 10px; }
   .simple-supply-status { grid-column: 1 / -1; justify-content: space-between; }
 }
