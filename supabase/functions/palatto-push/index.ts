@@ -46,8 +46,30 @@ Deno.serve(async request => {
       return reply({ ok: true })
     }
 
-    if (body.action === 'notify_new_order') {
+    if (body.action === 'notify_new_order' || body.action === 'notify_activity') {
       if (profile.role === 'visualizador') return reply({ error: 'No tienes permiso para crear pedidos' }, 403)
+      const event = body.action === 'notify_new_order' ? 'order_created' : body.event
+      const messages: Record<string, { title: string; body: string }> = {
+        order_created: { title: 'Pedido nuevo', body: 'Hay un pedido nuevo en la cola.' },
+        order_updated: { title: 'Pedido actualizado', body: 'Se guardaron cambios en un pedido.' },
+        order_paid: { title: 'Pedido cobrado', body: 'Se registró un cobro.' },
+        split_payment: { title: 'Pago registrado', body: 'Se registró un pago dividido.' },
+        order_deleted: { title: 'Pedido eliminado', body: 'Se eliminó un pedido pendiente.' },
+        product_saved: { title: 'Menú actualizado', body: 'Se guardó un cambio en el menú.' },
+        cash_movement: { title: 'Movimiento de caja', body: 'Se registró un ingreso, gasto o retiro.' },
+        cash_transfer: { title: 'Transferencia de caja', body: 'Se registró una transferencia entre cajas.' },
+        user_saved: { title: 'Equipo actualizado', body: 'Se guardó un cambio en una cuenta del equipo.' },
+        password_changed: { title: 'Seguridad de cuenta', body: 'Se cambió la contraseña de una cuenta.' },
+        password_reset: { title: 'Seguridad de cuenta', body: 'El administrador generó una nueva contraseña temporal.' },
+        supply_saved: { title: 'Insumos actualizados', body: 'Se guardó un cambio en el catálogo de insumos.' },
+        supply_movement: { title: 'Movimiento de insumo', body: 'Se registró una entrada, consumo o ajuste.' },
+        supply_purchase_created: { title: 'Compra de insumo', body: 'Se registró una compra pendiente o pagada.' },
+        supply_purchase_paid: { title: 'Insumo pagado', body: 'Se marcó una compra como pagada.' },
+        supply_purchase_pending: { title: 'Pago de insumo revertido', body: 'Una compra volvió a quedar pendiente.' },
+        supply_purchase_received: { title: 'Insumo recibido', body: 'Se marcó una compra como recibida.' },
+      }
+      const message = messages[event]
+      if (!message) return reply({ error: 'Tipo de aviso inválido' }, 400)
       const publicKey = Deno.env.get('PALATTO_VAPID_PUBLIC_KEY')
       const privateKey = Deno.env.get('PALATTO_VAPID_PRIVATE_KEY')
       const subject = Deno.env.get('PALATTO_VAPID_SUBJECT') || 'mailto:admin@palatto.app'
@@ -65,7 +87,7 @@ Deno.serve(async request => {
         if (!allowedEndpoint(subscription.endpoint)) return false
         try {
           await webpush.sendNotification({ endpoint: subscription.endpoint, keys: { p256dh: subscription.p256dh, auth: subscription.auth } },
-            JSON.stringify({ title: 'Pedido nuevo', body: 'Hay un pedido nuevo para preparar en Palatto.', url: '/' }), { TTL: 3600, urgency: 'high', timeout: 10000 })
+            JSON.stringify({ ...message, url: '/' }), { TTL: 3600, urgency: 'high', timeout: 10000 })
           return true
         } catch (error) {
           const status = Number((error as { statusCode?: number }).statusCode || 0)

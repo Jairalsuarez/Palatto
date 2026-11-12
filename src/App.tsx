@@ -1159,7 +1159,7 @@ function AccountPage({ app, installPrompt, installed, navigate, onInstall }: { a
         if (permission !== 'granted') throw new Error('Permite las notificaciones para poder activarlas.')
         const subscription = await registration.pushManager.subscribe({ userVisibleOnly: true, applicationServerKey: decodeVapidKey(vapidPublicKey) })
         await app.push({ action: 'subscribe', subscription: subscription.toJSON() })
-        setPushEnabled(true); setPushMessage('Este dispositivo recibirá avisos de pedidos nuevos.')
+        setPushEnabled(true); setPushMessage('Este dispositivo recibirá avisos de cambios importantes en Palatto.')
       }
     } catch (error) { setPushMessage(error instanceof Error ? error.message : 'No se pudieron actualizar las notificaciones.') }
     finally { setPushBusy(false) }
@@ -1177,7 +1177,7 @@ function AccountPage({ app, installPrompt, installed, navigate, onInstall }: { a
       {passwordOpen && <PasswordChange app={app}/>}
     </section>
     <section className="settings-card">
-      <div className="settings-card-title"><Bell size={20}/><div><h2>Notificaciones</h2><p>Recibe un aviso cuando llegue un pedido nuevo.</p></div></div>
+      <div className="settings-card-title"><Bell size={20}/><div><h2>Notificaciones</h2><p>Recibe avisos de pedidos, caja, menú e insumos.</p></div></div>
       <button className={`btn ${pushEnabled ? 'btn-ghost' : 'btn-primary'} btn-block`} disabled={pushBusy} onClick={() => void togglePush()}>{pushBusy ? 'Actualizando…' : pushEnabled ? 'Desactivar en este dispositivo' : 'Activar notificaciones'}<Bell size={17}/></button>
       {pushMessage && <p className="tiny" role="status">{pushMessage}</p>}
       {typeof Notification !== 'undefined' && Notification.permission === 'denied' && <p className="tiny">El navegador bloqueó los avisos. Cámbialo en los permisos del sitio.</p>}

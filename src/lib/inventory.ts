@@ -2,6 +2,7 @@ import { useCallback, useEffect, useState } from 'react'
 import { supabase } from './supabase'
 import { canWrite } from './domain'
 import type { Profile, Role } from './domain'
+import { notifyActivity } from './push'
 
 export type SupplyUnit = 'kg' | 'lb' | 'unidad' | 'litro' | 'funda' | 'caja' | 'porcion'
 export type MovementKind = 'entrada' | 'salida' | 'ajuste'
@@ -238,6 +239,7 @@ export function useInventory(profile: Profile | null, role: Role) {
           : [...rows, { id: crypto.randomUUID(), ...input, name: input.name.trim(), stock: 0, created_at: now, updated_at: now } as Supply]
         writeLocal(SUPPLY_KEY, list)
       }
+      void notifyActivity('supply_saved')
       await load()
       setNotice(id ? 'Insumo actualizado.' : 'Insumo agregado.')
       return true
@@ -280,6 +282,7 @@ export function useInventory(profile: Profile | null, role: Role) {
         }
         writeLocal(MOVEMENT_KEY, [movement, ...readLocal<SupplyMovement[]>(MOVEMENT_KEY, [])].slice(0, 500))
       }
+      void notifyActivity('supply_movement')
       await load()
       setNotice(kind === 'entrada' ? 'Entrada registrada.' : kind === 'salida' ? 'Consumo registrado.' : 'Stock ajustado.')
       return true
@@ -342,6 +345,7 @@ export function useInventory(profile: Profile | null, role: Role) {
         const purchase: SupplyPurchase = { ...input, id: crypto.randomUUID(), supplier: input.supplier.trim(), unit_cost: input.unit_cost, total_amount: totalAmount, created_by: profile?.id || '', created_at: now, paid_at: input.paid ? now : null, received_at: input.received ? now : null }
         writeLocal(PURCHASE_KEY, [purchase, ...readLocal<SupplyPurchase[]>(PURCHASE_KEY, [])].slice(0, 300))
       }
+      void notifyActivity('supply_purchase_created')
       await load()
       setNotice(input.paid ? 'Compra registrada como pagada.' : 'Compra pendiente registrada.')
       return true
@@ -394,6 +398,8 @@ export function useInventory(profile: Profile | null, role: Role) {
         }
         writeLocal(PURCHASE_KEY, list.map(row => row.id === purchaseId ? updated : row))
       }
+      const activity = action === 'paid' ? 'supply_purchase_paid' : action === 'unpaid' ? 'supply_purchase_pending' : 'supply_purchase_received'
+      void notifyActivity(activity)
       await load()
       setNotice(action === 'paid' ? 'Compra marcada como pagada y registrada en gastos.' : action === 'unpaid' ? 'Compra devuelta a pendiente; se registró la reversión del pago.' : 'Pedido recibido y stock actualizado.')
       return true
