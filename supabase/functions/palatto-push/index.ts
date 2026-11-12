@@ -74,7 +74,9 @@ Deno.serve(async request => {
       const privateKey = Deno.env.get('PALATTO_VAPID_PRIVATE_KEY')
       const subject = Deno.env.get('PALATTO_VAPID_SUBJECT') || 'mailto:admin@palatto.app'
       if (!publicKey || !privateKey) return reply({ error: 'Notificaciones sin configurar' }, 503)
-      const { data: recipients, error: recipientsError } = await admin.from('profiles').select('id').eq('active', true).neq('id', user.id)
+      // Every active account should receive activity notifications, including
+      // the account that performed the action. A user may have several devices.
+      const { data: recipients, error: recipientsError } = await admin.from('profiles').select('id').eq('active', true)
       if (recipientsError) throw recipientsError
       if (!recipients?.length) return reply({ sent: 0, attempted: 0, reason: 'no_recipients' })
       const { data: subscriptions, error: subscriptionsError } = await admin.from('push_subscriptions').select('id,endpoint,p256dh,auth').in('user_id', recipients.map(person => person.id))

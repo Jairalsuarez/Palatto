@@ -111,14 +111,14 @@ Superadmin crea cada cuenta con una contraseña temporal generada desde Equipo. 
 
 La aplicación incluye un manifiesto PWA y un service worker para instalar Palatto desde el navegador. En Android/Chrome usa **Instalar aplicación**; en iPhone/iPad abre Compartir → **Añadir a pantalla de inicio**. La instalación requiere el dominio de producción por HTTPS.
 
-Las notificaciones push avisan a los demás usuarios activos suscritos cuando se crean o editan pedidos, se registran cobros, cambios de caja, menú, cuentas del equipo o insumos. No se notifican cambios de navegación ni texto sin guardar. Cada dispositivo debe activar las notificaciones y la cuenta que realiza el cambio no recibe su propio aviso. Para completar su envío en producción:
+Las notificaciones push avisan a todos los usuarios activos suscritos, incluida la cuenta que realizó el movimiento, cuando se crean o editan pedidos, se registran cobros, cambios de caja, menú, cuentas del equipo o insumos. No se notifican cambios de navegación ni texto sin guardar. Cada dispositivo debe activar las notificaciones. Para completar su envío en producción:
 
 1. Genera un par VAPID una sola vez con `npx web-push generate-vapid-keys` y conserva ambas claves. No vuelvas a generarlas después de que los usuarios se suscriban.
 2. En **Vercel → Project → Settings → Environment Variables**, crea `VITE_VAPID_PUBLIC_KEY` con la clave pública para Production, Preview y Development; luego vuelve a desplegar. Los cambios de variables solo llegan a despliegues nuevos.
 3. En **Supabase → Project Settings → Edge Functions → Secrets**, agrega `PALATTO_VAPID_PUBLIC_KEY` con esa misma clave pública, `PALATTO_VAPID_PRIVATE_KEY` con la clave privada y `PALATTO_VAPID_SUBJECT` con un contacto real, por ejemplo `mailto:tu-correo@dominio.com`. La clave privada se guarda solo en Supabase; nunca la pongas en Vercel ni en el frontend.
 4. Inicia sesión en Palatto desde un navegador compatible, abre Tu cuenta → Notificaciones y pulsa **Activar notificaciones**. Cada dispositivo debe aceptar el permiso.
 
-La migración y las funciones Edge `manage-users` y `palatto-push` ya están aplicadas al proyecto Supabase. Falta configurar el par VAPID y desplegar esta versión del frontend en Vercel para habilitar el flujo completo.
+La migración y las funciones Edge `manage-users` y `palatto-push` están aplicadas al proyecto Supabase. El envío requiere el par VAPID en Supabase, la clave pública en el frontend desplegado y que cada dispositivo tenga una suscripción activa. Después de modificar la función Edge, vuelve a desplegar `palatto-push` en Supabase.
 
 
 

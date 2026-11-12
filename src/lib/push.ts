@@ -25,7 +25,11 @@ export async function notifyActivity(event: PushActivity): Promise<{ sent: numbe
     const { data, error } = await supabase.functions.invoke('palatto-push', {
       body: { action: 'notify_activity', event },
     })
-    if (error || data?.error) return null
+    if (error || data?.error) {
+      console.error('No se pudo enviar la notificación push', error || data?.error)
+      return null
+    }
+    if (data?.sent === 0) console.warn('Notificación push sin destinatarios efectivos', data)
     return data as { sent: number; attempted: number; reason?: string }
   } catch {
     return null
