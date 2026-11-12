@@ -1,22 +1,23 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import type { FormEvent, ReactNode } from 'react'
 import {
-  ArrowDownLeft, ArrowRight, ArrowUpRight, Banknote, BarChart3, BookOpen, Check, CheckCheck, ChefHat,
-  ChevronLeft, ClipboardList, Coffee, CreditCard, Flame, History, LogOut, Minus, PackageOpen,
-  Pencil, Plus, Power, Search, ShieldCheck, ShoppingBag, Trash2, Users, Wallet, X,
+  ArrowDownLeft, ArrowRight, ArrowUpRight, Banknote, BarChart3, Bell, BookOpen, Check, CheckCheck,
+  ChevronLeft, ClipboardList, Coffee, CreditCard, Download, Flame, History, KeyRound, LogOut, Minus, PackageOpen,
+  Pencil, Plus, Power, Receipt, Search, ShieldCheck, ShoppingBag, Trash2, Users, X,
 } from 'lucide-react'
 import { Modal } from './Modal'
 import { useRestaurant } from './lib/useRestaurant'
 import type { Restaurant } from './lib/useRestaurant'
-import { businessLabel, canCash, canEdit, canMenu, canWrite, cents, labels, money, priceForService, registerLabel, roles, total } from './lib/domain'
-import type { Business, Item, Method, MovementKind, Order, OrderPayment, Product, Role } from './lib/domain'
-import { analyze, paymentTimes } from './lib/analytics'
+import { businessLabel, canCash, canEdit, canMenu, canWrite, cents, labels, money, orderSplit, orderTotal, priceForService, registerLabel, roles, splitTotal, total } from './lib/domain'
+import type { Business, Item, Method, MovementKind, Order, OrderPayment, Product, Profile, Role } from './lib/domain'
+import { analyze, dayKey, paymentTimes } from './lib/analytics'
 import { OrderList } from './OrderList'
 import { Reports } from './Reports'
 import { Inventory } from './Inventory'
 import './App.css'
 
-type Page = 'pedidos' | 'nuevo' | 'cajas' | 'menu' | 'equipo' | 'reportes' | 'insumos'
+type Page = 'pedidos' | 'nuevo' | 'cajas' | 'menu' | 'equipo' | 'reportes' | 'insumos' | 'cuenta' | 'resumen'
+type Route = { page: Page; cashBusiness: Business | null }
 
 const number = (n: number) => String(n).padStart(4, '0')
 const movementKindLabel = (kind: MovementKind) => ({ ingreso: 'Ingreso', gasto: 'Gasto', retiro: 'Retiro', cobro: 'Cobro', correccion: 'Corrección', transferencia: 'Transferencia' }[kind])
@@ -40,7 +41,6 @@ function Login({ app }: { app: Restaurant }) {
       <img className="signin-logo" src="/palatto-logo.png" alt="Palatto"/>
       <div className="signin-heading">
         <h1>Bienvenido</h1>
-        <p>Entra para tomar pedidos y cobrar.</p>
       </div>
       <form className="form-stack" onSubmit={event => { event.preventDefault(); void app.login(email, password) }}>
         <label>Correo electrónico
@@ -52,51 +52,92 @@ function Login({ app }: { app: Restaurant }) {
         {app.error && <p className="alert alert-error" role="alert">{app.error}</p>}
         <button className="btn btn-primary btn-lg btn-block" disabled={app.busy}>{app.busy ? 'Entrando…' : 'Entrar'}<ArrowRight size={19} aria-hidden="true"/></button>
       </form>
-      <p className="signin-foot">Palatto · Cocina y bebidas</p>
     </section>
   </main>
 }
 
 export default function App() {
   const app = useRestaurant()
+  const [installPrompt, setInstallPrompt] = useState<Event | null>(null)
+  const [installed, setInstalled] = useState(false)
   const [page, setPage] = useState<Page>('pedidos')
   const [editing, setEditing] = useState<Order | undefined>()
   const [cashBusiness, setCashBusiness] = useState<Business | null>(null)
-  const [account, setAccount] = useState(false)
+  const [detail, setDetail] = useState<string | null>(null)
+  const [history, setHistory] = useState<Route[]>([])
+
+  useEffect(() => {
+    const onInstall = (event: Event) => { event.preventDefault(); setInstallPrompt(event) }
+    const onInstalled = () => { setInstalled(true); setInstallPrompt(null) }
+    if (window.matchMedia('(display-mode: standalone)').matches) setInstalled(true)
+    void navigator.serviceWorker?.register('/sw.js').catch(() => undefined)
+    window.addEventListener('beforeinstallprompt', onInstall)
+    window.addEventListener('appinstalled', onInstalled)
+    return () => {
+      window.removeEventListener('beforeinstallprompt', onInstall)
+      window.removeEventListener('appinstalled', onInstalled)
+    }
+  }, [])
 
   if (app.loading) return <div className="loading"><img src="/palatto-logo.png" alt="Palatto"/><p>Cargando…</p></div>
   if (!app.profile) return <Login app={app}/>
+  if (app.profile.must_change_password) return <PasswordChange app={app} mandatory/>
 
   const pending = app.data.orders.filter(order => !order.paid).length
   const tabs = [
     { id: 'pedidos', label: 'Inicio', icon: ClipboardList },
-    { id: 'cajas', label: 'Cajas', icon: Wallet },
+    { id: 'insumos', label: 'Insumos', icon: PackageOpen },
     { id: 'nuevo', label: 'Nuevo', icon: Plus },
     { id: 'reportes', label: 'Reportes', icon: BarChart3 },
     { id: 'menu', label: 'Menú', icon: BookOpen },
   ] as const
 
-  function navigate(next: Page) {
+  function pushCurrent() {
+    setHistory(current => [...current, { page, cashBusiness }])
+  }
+  function go(next: Page, cash: Business | null = next === 'cajas' ? 'palatto' : null) {
+    if (page !== next || cashBusiness !== cash) pushCurrent()
     setPage(next)
-    setCashBusiness(null)
+    setCashBusiness(cash)
     setEditing(undefined)
-    setAccount(false)
+    app.setError('')
+  }
+  function navigate(next: Page) {
+    go(next)
+  }
+  function back() {
+    const previous = history[history.length - 1]
+    setHistory(current => current.slice(0, -1))
+    setPage(previous?.page ?? 'pedidos')
+    setCashBusiness(previous?.page === 'cajas' ? (previous.cashBusiness ?? 'palatto') : null)
+    setEditing(undefined)
     app.setError('')
   }
   function edit(order: Order) {
+    if (page !== 'nuevo') pushCurrent()
     setEditing(order)
     setPage('nuevo')
+    setCashBusiness(null)
+    app.setError('')
+  }
+  function finishOrder() {
+    setEditing(undefined)
+    setDetail(null)
+    setPage('pedidos')
+    setCashBusiness(null)
+    setHistory([])
+    app.setError('')
   }
 
   return <div className="app-shell">
     <header className="app-bar">
       <button className="app-brand" onClick={() => navigate('pedidos')} aria-label="Ir a inicio">
         <img src="/palatto-logo.png" alt=""/>
-        <span><strong>Palatto</strong><small>Pedidos, cajas y cocina</small></span>
+        <span><strong>Palatto</strong></span>
       </button>
       <div className="app-bar-right">
         {pending > 0 && page !== 'pedidos' && <span className="pending-dot" aria-label={`${pending} pedidos en proceso`}>{pending}</span>}
-        <button className="avatar-button" onClick={() => setAccount(true)} aria-label="Tu cuenta y ajustes">
+        <button className="avatar-button" onClick={() => navigate('cuenta')} aria-label="Tu cuenta y ajustes">
           {app.profile.name.slice(0, 1)}
         </button>
       </div>
@@ -108,43 +149,37 @@ export default function App() {
         <button className="icon-button icon-sm" onClick={() => app.setError('')} aria-label="Cerrar aviso"><X size={16}/></button>
       </div>}
 
-      {page === 'pedidos' && <Home app={app} onNew={() => navigate('nuevo')} onReport={() => navigate('reportes')} onCash={business => { setCashBusiness(business); setPage('cajas') }} onEdit={edit}/>}
+      {page === 'pedidos' && <Home app={app} detail={detail} setDetail={setDetail} onNew={() => navigate('nuevo')} onReport={() => navigate('reportes')} onSummary={() => navigate('resumen')} onCash={business => go('cajas', business)} onEdit={edit}/>}
+      {page === 'resumen' && <DailySummary app={app} onCash={business => go('cajas', business)}/>}
       {page === 'reportes' && <Reports app={app}/>}
       {page === 'insumos' && <Inventory app={app}/>}
-      {page === 'nuevo' && canWrite(app.role) && <OrderEditor key={editing?.id || 'new'} app={app} order={editing} done={() => { setEditing(undefined); setPage('pedidos') }}/>}
-      {page === 'cajas' && (cashBusiness
-        ? <Cash key={cashBusiness} app={app} business={cashBusiness} back={() => setCashBusiness(null)}/>
-        : <CashOverview app={app} open={setCashBusiness}/>)}
+      {page === 'nuevo' && canWrite(app.role) && <OrderEditor key={editing?.id || 'new'} app={app} order={editing} back={back} done={finishOrder}/>}
+      {page === 'cajas' && cashBusiness
+        ? <Cash key={cashBusiness} app={app} business={cashBusiness}
+            back={back}
+            openDrinks={() => go('cajas', 'carreta')}/>
+        : null}
       {page === 'menu' && <Menu app={app}/>}
       {page === 'equipo' && app.role === 'superadmin' && <Team app={app}/>}
+      {page === 'cuenta' && <AccountPage app={app} installPrompt={installPrompt} installed={installed} navigate={navigate} onInstall={async () => {
+        if (!installPrompt) return
+        const prompt = installPrompt as Event & { prompt: () => Promise<void>; userChoice: Promise<{ outcome: string }> }
+        await prompt.prompt()
+        if ((await prompt.userChoice).outcome === 'accepted') setInstallPrompt(null)
+      }}/>}
     </main>
 
-    {page !== 'nuevo' && <nav className="tabbar" aria-label="Navegación principal">
+    {page !== 'nuevo' && page !== 'cuenta' && <nav className="tabbar" aria-label="Navegación principal">
       {tabs.map(tab => <button key={tab.id}
-        className={`tab ${page === tab.id ? 'active' : ''} ${tab.id === 'nuevo' ? 'tab-new' : ''}`}
-        aria-current={page === tab.id ? 'page' : undefined}
+        className={`tab ${page === tab.id || (page === 'resumen' && tab.id === 'pedidos') ? 'active' : ''} ${tab.id === 'nuevo' ? 'tab-new' : ''}`}
+        aria-current={page === tab.id || (page === 'resumen' && tab.id === 'pedidos') ? 'page' : undefined}
         onClick={() => navigate(tab.id)}>
-        <span className="tab-icon"><tab.icon size={22} aria-hidden="true"/>
+        <span className="tab-icon"><tab.icon size={tab.id === 'nuevo' ? 26 : 22} aria-hidden="true"/>
           {tab.id === 'pedidos' && pending > 0 && <i className="tab-badge">{pending}</i>}
         </span>
         <span className="tab-label">{tab.label}</span>
       </button>)}
     </nav>}
-
-    {account && <Modal title="Tu cuenta" close={() => setAccount(false)}>
-      <div className="account">
-        <div className="account-head">
-          <span className="avatar avatar-lg">{app.profile.name.slice(0, 1)}</span>
-          <div><strong>{app.profile.name}</strong><small>{labels[app.role]}</small></div>
-        </div>
-        <div className="account-links">
-          <button className="account-link" onClick={() => navigate('insumos')}><PackageOpen size={20}/><span>Insumos y stock</span><ArrowRight size={18}/></button>
-          {app.role === 'superadmin' && <button className="account-link" onClick={() => navigate('equipo')}><Users size={20}/><span>Equipo y permisos</span><ArrowRight size={18}/></button>}
-        </div>
-        <button className="btn btn-ghost btn-block" disabled={app.busy} onClick={() => void app.logout()}><LogOut size={18}/>Cerrar sesión</button>
-        <p className="tiny center">Sesión con permisos de {labels[app.role].toLowerCase()}.</p>
-      </div>
-    </Modal>}
 
     {app.notice && <div className="toast" role="status"><CheckCheck size={18}/>{app.notice}</div>}
   </div>
@@ -152,11 +187,10 @@ export default function App() {
 
 /* ---------------------------------------------------------------- Inicio */
 
-function Home({ app, onNew, onReport, onCash, onEdit }: { app: Restaurant; onNew: () => void; onReport: () => void; onCash: (business: Business) => void; onEdit: (order: Order) => void }) {
+function Home({ app, detail, setDetail, onNew, onReport, onSummary, onCash, onEdit }: { app: Restaurant; detail: string | null; setDetail: (id: string | null) => void; onNew: () => void; onReport: () => void; onSummary: () => void; onCash: (business: Business) => void; onEdit: (order: Order) => void }) {
   const [filter, setFilter] = useState<'activos' | 'completados' | 'todos'>('activos')
   const [search, setSearch] = useState('')
   const [payment, setPayment] = useState<{ order: Order; split: boolean } | null>(null)
-  const [detail, setDetail] = useState<string | null>(null)
   const [receipt, setReceipt] = useState<string | null>(null)
 
   const orders = app.data.orders.filter(order => {
@@ -169,9 +203,10 @@ function Home({ app, onNew, onReport, onCash, onEdit }: { app: Restaurant; onNew
   return <>
     <div className="page-head">
       <div><p className="eyebrow">{today()}</p><h1>Pedidos</h1></div>
+      {canWrite(app.role) && <button className="home-new" onClick={onNew} aria-label="Nuevo pedido"><Plus size={20}/></button>}
     </div>
 
-    <SalesHero app={app} onReport={onReport}/>
+    <SalesHero app={app} onReport={onReport} onSummary={onSummary} onCash={onCash}/>
     <CashMini app={app} open={onCash}/>
 
     <div className="toolbar">
@@ -195,7 +230,7 @@ function Home({ app, onNew, onReport, onCash, onEdit }: { app: Restaurant; onNew
     {detailOrder && <OrderDetail app={app} order={detailOrder} close={() => setDetail(null)}
       pay={() => { setDetail(null); setPayment({ order: detailOrder, split: false }) }}
       split={() => { setDetail(null); setPayment({ order: detailOrder, split: true }) }}
-      edit={() => { setDetail(null); onEdit(detailOrder) }}
+      edit={() => onEdit(detailOrder)}
       showReceipt={async path => {
         try { setReceipt(await app.receiptUrl(path)) } catch (error) { app.setError((error as Error).message) }
       }}/>}
@@ -209,39 +244,74 @@ function Home({ app, onNew, onReport, onCash, onEdit }: { app: Restaurant; onNew
   </>
 }
 
-function SalesHero({ app, onReport }: { app: Restaurant; onReport: () => void }) {
+function SalesHero({ app, onReport, onSummary, onCash }: { app: Restaurant; onReport: () => void; onSummary: () => void; onCash: (business: Business) => void }) {
   const summary = analyze(app.data.orders, app.data.products, 'hoy', new Date(), paymentTimes(app.data.movements))
-  return <section className="sales-hero" aria-label="Resumen de ventas de hoy">
+  const today = dayKey(new Date())
+  const mainCash = app.data.movements.filter(movement => movement.business === 'palatto')
+  const balance = mainCash.reduce((sum, movement) => sum + movement.amount, 0)
+  const expenses = app.data.movements
+    .filter(movement => movement.kind === 'gasto' && dayKey(movement.created_at) === today)
+    .reduce((sum, movement) => sum + Math.abs(movement.amount), 0)
+  const mood = expenses > 0 ? summary.revenue / expenses : summary.revenue > 0 ? 1 : 0
+
+  return <section className="sales-hero" aria-label="Caja principal y resumen del día">
     <div className="sales-hero-top">
-      <span className="eyebrow">Palatto · ventas de hoy</span>
-      <button className="hero-link" onClick={onReport}>Ver reportes<ArrowUpRight size={15}/></button>
+      <span className="eyebrow">Caja</span>
+      <div className="sales-hero-links"><button className="hero-link" onClick={onSummary}>Resumen del día<ArrowRight size={15}/></button><button className="hero-link" onClick={onReport}>Reportes<ArrowUpRight size={15}/></button></div>
     </div>
-    <strong className="hero-amount">{money(summary.revenue)}</strong>
+    <button className="hero-balance" onClick={() => onCash('palatto')} aria-label="Abrir la caja principal">
+      <strong className="hero-amount">{money(balance)}</strong>
+      <span className="hero-caption">Saldo disponible · Toca para abrir la caja<ArrowUpRight size={13}/></span>
+    </button>
+    <div className="hero-day">
+      <div className="hero-sales">
+        <MoodFace score={mood}/>
+        <div>
+          <small>Ventas de hoy</small>
+          <strong>{money(summary.revenue)}</strong>
+        </div>
+      </div>
+      <div className="hero-expenses">
+        <small>Gastos de hoy</small>
+        <strong>{money(expenses)}</strong>
+      </div>
+    </div>
   </section>
 }
 
+function MoodFace({ score }: { score: number }) {
+  const mood = Math.max(0, Math.min(1, score))
+  const mouth = 33 + 14 * mood
+  const color = `hsl(${12 + 129 * mood} 58% 46%)`
+  const label = mood >= 0.75 ? 'Vamos bien' : mood >= 0.4 ? 'Vamos avanzando' : 'A remontar'
+  return <svg className="mood-face" viewBox="0 0 64 64" role="img" aria-label={`Ánimo de ventas: ${label}`}>
+    <circle cx="32" cy="32" r="27" fill="rgb(255 248 238 / 7%)" stroke={color} strokeWidth="2.5"/>
+    <circle cx="24" cy="26" r="2.7" fill={color}/>
+    <circle cx="40" cy="26" r="2.7" fill={color}/>
+    <path d={`M22 41 Q32 ${mouth} 42 41`} fill="none" stroke={color} strokeWidth="3.2" strokeLinecap="round"/>
+  </svg>
+}
+
 function CashMini({ app, open }: { app: Restaurant; open: (business: Business) => void }) {
-  return <div className="cash-mini">
-    {(['palatto', 'carreta'] as Business[]).map(business => {
-      const movements = app.data.movements.filter(movement => movement.business === business)
-      const balance = movements.reduce((sum, movement) => sum + movement.amount, 0)
-      return <button key={business} className="cash-mini-card" onClick={() => open(business)}>
-        <span className="cash-mini-name">{business === 'palatto' ? <ChefHat size={16}/> : <Coffee size={16}/>}{registerLabel(business)}</span>
-        <strong>{money(balance)}</strong>
-        <span className="cash-mini-state">{business === 'palatto' ? 'Palatto' : 'Registro separado · Bebidas'}</span>
-      </button>
-    })}
-  </div>
+  const business: Business = 'carreta'
+  const movements = app.data.movements.filter(movement => movement.business === business)
+  const balance = movements.reduce((sum, movement) => sum + movement.amount, 0)
+  return <button className="drinks-mini" onClick={() => open(business)}>
+    <span><Coffee size={15}/>Aguas y colas</span>
+    <span className="drinks-mini-amount">{money(balance)}</span>
+    <ArrowRight size={15}/>
+  </button>
 }
 
 function OrderDetail({ app, order, close, pay, split, edit, showReceipt }: { app: Restaurant; order: Order; close: () => void; pay: () => void; split: () => void; edit: () => void; showReceipt: (path: string) => void }) {
   const [confirming, setConfirming] = useState(false)
   const [reason, setReason] = useState('Pedido cancelado')
-  const owed = total(order.items)
+  const owed = orderTotal(order)
+  const allocation = orderSplit(order)
   const payments = app.data.order_payments.filter(payment => payment.order_id === order.id).sort((a, b) => a.created_at.localeCompare(b.created_at))
   const paid = payments.reduce((sum, payment) => sum + payment.amount, 0)
   const remaining = Math.max(0, owed - paid)
-  return <Modal title={`Pedido #${number(order.number)}`} close={close}>
+  return <Modal title={`Pedido #${number(order.number)}`} close={close} page>
     <div className="dialog-body">
     {confirming
       ? <div className="form-stack">
@@ -277,9 +347,14 @@ function OrderDetail({ app, order, close, pay, split, edit, showReceipt }: { app
 
           <div className="detail-total"><span>{payments.length ? 'Total del pedido' : 'Total'}</span><strong>{money(owed)}</strong></div>
 
+          {!!order.adjustment && <p className="detail-adjust">
+            <Pencil size={14}/>
+            <span>Total ajustado {order.adjustment > 0 ? '+' : ''}{money(order.adjustment)}{order.adjustment_reason ? ` · ${order.adjustment_reason}` : ''}</span>
+          </p>}
+
           <div className="allocation">
-            <span>Palatto <b>{money(total(order.items, 'palatto'))}</b></span>
-            <span>Aguas y colas <b>{money(total(order.items, 'carreta'))}</b></span>
+            <span>Palatto <b>{money(allocation.palatto)}</b></span>
+            <span>Aguas y colas <b>{money(allocation.carreta)}</b></span>
           </div>
 
           {payments.length > 0 && <section className="split-summary">
@@ -326,7 +401,7 @@ function Payment({ app, order, initialSplit, close, view }: { app: Restaurant; o
   const payments = app.data.order_payments.filter(payment => payment.order_id === order.id).sort((a, b) => a.created_at.localeCompare(b.created_at))
   const [mode, setMode] = useState<'completo' | 'dividir'>(initialSplit || payments.length > 0 ? 'dividir' : 'completo')
 
-  return <Modal title={`Cobrar #${number(order.number)}`} close={close}>
+  return <Modal title={`Cobrar #${number(order.number)}`} close={close} page>
     {payments.length === 0 && <div className="pay-modes segmented segmented-lg" role="group" aria-label="Forma de cobro">
       <button type="button" className={mode === 'completo' ? 'active' : ''} aria-pressed={mode === 'completo'} onClick={() => setMode('completo')}><Banknote size={18}/>Cobro completo</button>
       <button type="button" className={mode === 'dividir' ? 'active' : ''} aria-pressed={mode === 'dividir'} onClick={() => setMode('dividir')}><Users size={18}/>Dividir cuenta</button>
@@ -341,20 +416,53 @@ function FullPayment({ app, order, close, view }: { app: Restaurant; order: Orde
   const [method, setMethod] = useState<Method>('efectivo')
   const [received, setReceived] = useState('')
   const [receipt, setReceipt] = useState<string | null>(null)
-  const amount = total(order.items)
+  const [adjusting, setAdjusting] = useState(false)
+  const [custom, setCustom] = useState('')
+  const [savedCustom, setSavedCustom] = useState('')
+  const [reason, setReason] = useState('')
+  const [formError, setFormError] = useState('')
+  const base = total(order.items)
+  const activeCustom = savedCustom
+  const parsed = activeCustom.trim() === '' ? base : cents(activeCustom)
+  const amount = Number.isFinite(parsed) ? parsed : 0
+  const changed = amount !== base
+  const allocation = splitTotal(order.items, amount)
   const given = cents(received)
   const change = Math.max(0, given - amount)
-  const quick = [...new Set([amount, 500, 1000, 2000, 5000])].filter(value => value >= amount).slice(0, 4)
+  const missingReason = changed && reason.trim().length < 3
+  const quick = [...new Set([amount, 500, 1000, 2000, 5000])].filter(value => value >= amount && value > 0).slice(0, 4)
 
   return <form className="form-stack" onSubmit={async event => {
     event.preventDefault()
-    if (await app.pay(order, method, given, receipt)) close()
+    setFormError('')
+    if (!Number.isFinite(amount) || amount <= 0) { setFormError('El total debe ser un importe mayor a cero.'); return }
+    if (missingReason) { setFormError('Explica el motivo del ajuste al total.'); return }
+    if (await app.pay(order, method, given, receipt, amount, reason)) close()
   }}>
     <div className="pay-total">
       <span>Total a cobrar</span>
-      <strong>{money(amount)}</strong>
+      <div className="pay-total-value"><strong>{money(amount)}</strong><button type="button" className="adjust-toggle" aria-expanded={adjusting} onClick={() => { setAdjusting(value => !value); setFormError('') }}>
+        <Pencil size={16}/>{adjusting ? 'Cerrar edición' : 'Editar total'}
+      </button></div>
       <small>{order.takeaway ? 'Para llevar' : 'Para servir'} · {order.items.reduce((count, item) => count + item.quantity, 0)} artículos</small>
+      {changed && <small className="pay-adjust-note">Original {money(base)} · Ajuste {amount > base ? '+' : ''}{money(amount - base)}</small>}
     </div>
+
+    {adjusting && <div className="adjust-box">
+      <label>Total final ($)
+        <input type="number" inputMode="decimal" min="0.01" max="1000000" step="0.01" value={custom} onChange={event => { setCustom(event.target.value); setFormError('') }} placeholder={(base / 100).toFixed(2)}/>
+      </label>
+      <label>Motivo del ajuste
+        <textarea rows={2} maxLength={450} value={reason} onChange={event => { setReason(event.target.value); setFormError('') }} placeholder="Ej. Descuento acordado, producto faltante…"/>
+      </label>
+      <small className={`adjust-hint ${missingReason ? 'bad' : ''}`}>
+        {changed ? (missingReason ? 'Escribe el motivo para poder cobrar el total ajustado.' : 'El motivo quedará guardado en el historial.') : 'Deja el total original si no necesitas ajustarlo.'}
+      </small>
+      <div className="adjust-actions">
+        <button type="button" className="btn btn-primary btn-sm" disabled={!custom.trim() || !Number.isFinite(cents(custom)) || cents(custom) <= 0 || reason.trim().length < 3} onClick={() => { setSavedCustom(custom); setFormError(''); setAdjusting(false) }}>Guardar edición</button>
+        {(custom || savedCustom || reason) && <button type="button" className="link-button" onClick={() => { setCustom(''); setSavedCustom(''); setReason(''); setFormError('') }}>Usar total original ({money(base)})</button>}
+      </div>
+    </div>}
 
     <div className="segmented segmented-lg" role="group" aria-label="Forma de pago">
       {(['efectivo', 'transferencia'] as Method[]).map(option => <button type="button" key={option} className={method === option ? 'active' : ''} aria-pressed={method === option} onClick={() => setMethod(option)}>
@@ -381,12 +489,12 @@ function FullPayment({ app, order, close, view }: { app: Restaurant; order: Orde
     <button type="button" className="link-button" onClick={view}>Ver detalle o editar<ArrowRight size={16}/></button>
 
     <div className="allocation">
-      <span>Palatto <b>{money(total(order.items, 'palatto'))}</b></span>
-      <span>Aguas y colas <b>{money(total(order.items, 'carreta'))}</b></span>
+      <span>Palatto <b>{money(allocation.palatto)}</b></span>
+      <span>Aguas y colas <b>{money(allocation.carreta)}</b></span>
     </div>
 
-    {app.error && <p className="alert alert-error" role="alert">{app.error}</p>}
-    <button className="btn btn-money btn-lg btn-block" disabled={app.busy || order.paid || (method === 'transferencia' ? !receipt : given < amount)}>
+    {(formError || app.error) && <p className="alert alert-error" role="alert">{formError || app.error}</p>}
+    <button className="btn btn-money btn-lg btn-block" disabled={app.busy || order.paid || amount <= 0 || missingReason || (method === 'transferencia' ? !receipt : given < amount)}>
       {order.paid ? 'Pedido cobrado' : app.busy ? 'Guardando…' : 'Confirmar pago'}<Check size={19}/>
     </button>
     <p className="tiny center">Confirma cuando tengas el dinero en mano.</p>
@@ -521,7 +629,7 @@ function ReceiptUpload({ app, value, onChange }: { app: Restaurant; value: strin
 
 /* ------------------------------------------------------------ Nuevo pedido */
 
-function OrderEditor({ app, order, done }: { app: Restaurant; order?: Order; done: () => void }) {
+function OrderEditor({ app, order, back, done }: { app: Restaurant; order?: Order; back: () => void; done: () => void }) {
   const [picker, setPicker] = useState(false)
   const [service, setService] = useState<'servir' | 'llevar' | null>(order ? (order.takeaway ? 'llevar' : 'servir') : null)
   const [showNotes, setShowNotes] = useState(Boolean(order?.notes))
@@ -532,7 +640,9 @@ function OrderEditor({ app, order, done }: { app: Restaurant; order?: Order; don
   const [receipt, setReceipt] = useState<string | null>(null)
 
   const priced = priceForService(items, service === 'llevar')
-  const difference = order?.paid ? total(priced) - total(order.items) : 0
+  const itemsTotal = total(priced)
+  const difference = order?.paid ? itemsTotal - total(order.items) : 0
+  const displayedTotal = Math.max(0, itemsTotal + (order?.adjustment || 0))
   const takeawayFee = priced.reduce((sum, item) => sum + (item.takeaway_fee || 0) * item.quantity, 0)
 
   function add(product: Product) {
@@ -555,9 +665,9 @@ function OrderEditor({ app, order, done }: { app: Restaurant; order?: Order; don
 
   return <div className="editor">
     <header className="editor-bar">
-      <button className="icon-button" onClick={done} aria-label="Volver a pedidos"><ChevronLeft size={22}/></button>
+      <button className="icon-button" onClick={back} aria-label="Volver"><ChevronLeft size={22}/></button>
       <div><p className="eyebrow">{order ? 'Corregir' : 'Nuevo'}</p><h1>{order ? `Pedido #${number(order.number)}` : `Pedido #${number(Math.max(0, ...app.data.orders.map(o => o.number)) + 1)}`}</h1></div>
-      <button className="btn btn-ghost btn-sm" onClick={done}>Cancelar</button>
+      <button className="btn btn-ghost btn-sm" onClick={back}>Cancelar</button>
     </header>
 
     <form className="editor-form" onSubmit={submit}>
@@ -573,7 +683,7 @@ function OrderEditor({ app, order, done }: { app: Restaurant; order?: Order; don
       <section className="editor-section">
         <div className="section-top"><p className="field-label">Productos</p>{items.length > 0 && <span className="muted small">{items.reduce((sum, item) => sum + item.quantity, 0)} artículos</span>}</div>
         {items.length === 0
-          ? <button type="button" className="add-first" onClick={() => setPicker(true)}><Plus size={24}/><span>Agregar productos</span></button>
+          ? <div className="add-first-hint">Aún no has agregado productos.</div>
           : <ul className="basket">
               {items.map(item => <li key={item.product_id}>
                 <div className="basket-info">
@@ -589,7 +699,7 @@ function OrderEditor({ app, order, done }: { app: Restaurant; order?: Order; don
                 <b className="basket-price">{money(item.price * item.quantity)}</b>
               </li>)}
             </ul>}
-        <button type="button" className="btn btn-ghost btn-block" onClick={() => setPicker(true)}><Plus size={18}/>{items.length ? 'Agregar otro producto' : 'Agregar productos'}</button>
+        <button type="button" className="btn btn-ghost btn-block" onClick={() => setPicker(true)}><Plus size={18}/>Agregar producto</button>
       </section>
 
       {service === 'llevar' && <p className="note-line">Incluye {money(takeawayFee)} de adicional para llevar.</p>}
@@ -617,14 +727,14 @@ function OrderEditor({ app, order, done }: { app: Restaurant; order?: Order; don
       {app.error && <p className="alert alert-error" role="alert">{app.error}</p>}
 
       <div className="editor-foot">
-        <div><small>Total</small><strong>{money(total(priced))}</strong></div>
+        <div><small>Total</small><strong>{money(displayedTotal)}</strong></div>
         <button className="btn btn-primary btn-lg" disabled={app.busy || !service || !items.length || (!!order?.paid && order.method === 'transferencia' && difference !== 0 && !receipt)}>
           {app.busy ? 'Guardando…' : order ? 'Guardar cambio' : 'Enviar a cocina'}<ArrowRight size={19}/>
         </button>
       </div>
     </form>
 
-    {picker && <Modal title="Agregar productos" close={() => setPicker(false)}>
+    {picker && <Modal title="Agregar productos" close={() => setPicker(false)} large>
       <ProductPicker app={app} selected={items} add={add}/>
     </Modal>}
   </div>
@@ -632,26 +742,25 @@ function OrderEditor({ app, order, done }: { app: Restaurant; order?: Order; don
 
 function ProductPicker({ app, selected, add }: { app: Restaurant; selected: Item[]; add: (product: Product) => void }) {
   const [search, setSearch] = useState('')
-  const [business, setBusiness] = useState<'todos' | Business>('todos')
   const products = app.data.products.filter(product =>
-    product.active && product.name.toLowerCase().includes(search.toLowerCase()) && (business === 'todos' || product.business === business))
+    product.active && product.name.toLowerCase().includes(search.toLowerCase()))
 
   return <section className="picker">
     <label className="search"><Search size={18}/><input value={search} onChange={event => setSearch(event.target.value)} autoFocus placeholder="Buscar producto" aria-label="Buscar producto"/></label>
-    <div className="segmented" role="group" aria-label="Filtrar por negocio">
-      {([['todos', 'Todo'], ['palatto', 'Palatto'], ['carreta', 'Aguas y colas']] as const).map(([id, label]) =>
-        <button key={id} className={business === id ? 'active' : ''} aria-pressed={business === id} onClick={() => setBusiness(id)}>{label}</button>)}
-    </div>
     {!products.length
       ? <Empty title="Sin productos">{search ? 'Prueba otra búsqueda.' : 'Agrega productos desde Menú.'}</Empty>
-      : <div className="product-grid">
+      : <div className="product-list">
           {products.map(product => {
             const count = selected.find(item => item.product_id === product.id)?.quantity
-            return <button key={product.id} className="product-card" onClick={() => add(product)}>
-              <ProductPhoto app={app} product={product}/>
-              {count ? <span className="product-count">{count}</span> : null}
-              <strong>{product.name}</strong>
-              <span className="product-card-foot"><b>{money(product.price)}</b><span className="add-circle"><Plus size={17}/></span></span>
+            return <button key={product.id} className="product-row" onClick={() => add(product)}>
+              <span className="product-row-photo"><ProductPhoto app={app} product={product}/></span>
+              <span className="product-row-info">
+                <strong>{product.name}</strong>
+                <small>{product.category} · {businessLabel(product.business)}</small>
+              </span>
+              {count ? <span className="product-row-count">{count}</span> : null}
+              <b className="product-row-price">{money(product.price)}</b>
+              <span className="add-circle"><Plus size={17}/></span>
             </button>
           })}
         </div>}
@@ -660,33 +769,7 @@ function ProductPicker({ app, selected, add }: { app: Restaurant; selected: Item
 
 /* ----------------------------------------------------------------- Cajas */
 
-function CashOverview({ app, open }: { app: Restaurant; open: (business: Business) => void }) {
-  return <>
-    <div className="page-head"><div><p className="eyebrow">Palatto · dinero</p><h1>Cajas</h1></div></div>
-    <div className="cash-overview">
-      {(['palatto', 'carreta'] as Business[]).map(business => {
-        const movements = app.data.movements.filter(movement => movement.business === business)
-        const balance = movements.reduce((sum, movement) => sum + movement.amount, 0)
-        const cash = movements.filter(movement => movement.method === 'efectivo').reduce((sum, movement) => sum + movement.amount, 0)
-        const transfer = movements.filter(movement => movement.method === 'transferencia').reduce((sum, movement) => sum + movement.amount, 0)
-        return <button key={business} className="cash-card" onClick={() => open(business)}>
-          <span className="cash-card-top">
-            <span className="cash-icon">{business === 'palatto' ? <ChefHat size={20}/> : <Coffee size={20}/>}</span>
-          <span className="cash-card-badge">{business === 'palatto' ? 'Palatto' : 'Registro de ventas'}</span>
-          </span>
-          <strong className="cash-card-name">{registerLabel(business)}</strong>
-          <small>{businessLabel(business)}</small>
-          <span className="cash-card-amount">{money(balance)}</span>
-          <span className="cash-card-split"><span>Efectivo {money(cash)}</span><span>Transf. {money(transfer)}</span></span>
-          <span className="cash-card-open">{business === 'palatto' ? 'Ver caja principal' : 'Ver registro de bebidas'}<ArrowRight size={16}/></span>
-        </button>
-      })}
-    </div>
-    <p className="tiny center muted">Un solo negocio: Palatto. Las ventas de aguas y colas tienen un registro y saldo separado.</p>
-  </>
-}
-
-function Cash({ app, business, back }: { app: Restaurant; business: Business; back: () => void }) {
+function Cash({ app, business, back, openDrinks }: { app: Restaurant; business: Business; back: () => void; openDrinks: () => void }) {
   const [transferId, setTransferId] = useState(() => crypto.randomUUID())
   const [form, setForm] = useState<'ingreso' | 'gasto' | 'retiro' | 'transferir' | null>(null)
   const [method, setMethod] = useState<Method>('efectivo')
@@ -705,7 +788,7 @@ function Cash({ app, business, back }: { app: Restaurant; business: Business; ba
 
   return <>
     <div className="subpage-bar">
-      <button className="icon-button" onClick={back} aria-label="Volver a cajas"><ChevronLeft size={22}/></button>
+      <button className="back-button" onClick={back} aria-label="Volver"><ChevronLeft size={22}/><span>Volver</span></button>
       <div><p className="eyebrow">{businessLabel(business)}</p><h1>{registerLabel(business)}</h1></div>
     </div>
 
@@ -717,6 +800,12 @@ function Cash({ app, business, back }: { app: Restaurant; business: Business; ba
         <span><CreditCard size={16}/>Transferencias<b>{money(balance('transferencia'))}</b></span>
       </div>
     </section>
+
+    {business === 'palatto' && <button className="cash-jump" onClick={openDrinks}>
+      <span className="cash-jump-icon"><Coffee size={18}/></span>
+      <span><strong>Caja de aguas y colas</strong><small>Ver su saldo y movimientos</small></span>
+      <ArrowRight size={18}/>
+    </button>}
 
     {canCash(app.role, business)
       ? <div className="cash-actions">
@@ -742,7 +831,7 @@ function Cash({ app, business, back }: { app: Restaurant; business: Business; ba
           </ul>}
     </section>
 
-    {form && <Modal title={form === 'ingreso' ? 'Ingresar dinero' : form === 'gasto' ? 'Registrar gasto' : form === 'retiro' ? 'Retirar de caja' : 'Transferir entre cajas'} close={closeForm}>
+    {form && <Modal title={form === 'ingreso' ? 'Ingresar dinero' : form === 'gasto' ? 'Registrar gasto' : form === 'retiro' ? 'Retirar de caja' : 'Transferir entre cajas'} close={closeForm} page>
       <form className="form-stack" onSubmit={async event => {
         event.preventDefault()
         const value = cents(amount)
@@ -792,6 +881,38 @@ function DailyReport({ app, business }: { app: Restaurant; business: Business })
   </details>
 }
 
+function DailySummary({ app, onCash }: { app: Restaurant; onCash: (business: Business) => void }) {
+  const todayKey = reportDate(new Date().toISOString())
+  const movements = app.data.movements.filter(movement => reportDate(movement.created_at) === todayKey).sort((a, b) => b.created_at.localeCompare(a.created_at))
+  const sum = (kind: MovementKind) => movements.filter(movement => movement.kind === kind).reduce((value, movement) => value + movement.amount, 0)
+  const sales = sum('cobro')
+  const expenses = Math.max(0, -sum('gasto'))
+  const cashBalance = app.data.movements.filter(movement => movement.business === 'palatto').reduce((value, movement) => value + movement.amount, 0)
+  const chartMax = Math.max(sales, expenses, cashBalance, 1)
+  return <div className="daily-summary-page">
+    <div className="page-heading"><div><p className="eyebrow">Palatto · {new Date(todayKey + 'T12:00:00').toLocaleDateString('es-EC', { weekday: 'long', day: 'numeric', month: 'long' })}</p><h1>Resumen del día</h1></div></div>
+    <div className="daily-summary-grid">
+      <article className="daily-summary-stat sales"><small>Vendido hoy</small><strong>{money(sales)}</strong></article>
+      <article className="daily-summary-stat cash"><small>Hay en caja</small><strong>{money(cashBalance)}</strong></article>
+      <article className="daily-summary-stat expenses"><small>Gastado hoy</small><strong>{money(expenses)}</strong></article>
+    </div>
+    <section className="summary-figure" aria-label="Gráfica de ventas, saldo en caja y gastos"><div className="summary-figure-heading"><div><span className="eyebrow">Vista rápida</span><h2>Así va el día</h2></div><span className="summary-figure-mark"><BarChart3 size={19}/></span></div>
+      {[['Vendido', sales, 'sales'], ['En caja', cashBalance, 'cash'], ['Gastado', expenses, 'expenses']].map(([label, value, style]) => <div className="summary-bar-row" key={String(label)}><div><span>{label}</span><b>{money(Number(value))}</b></div><span className="summary-bar-track"><i className={String(style)} style={{ width: `${Math.max(2, Number(value) / chartMax * 100)}%` }}/></span></div>)}
+    </section>
+    <button className="daily-register-card summary-cash-link" onClick={() => onCash('palatto')}><span><small>Detalle</small><strong>Abrir movimientos de caja</strong></span><ArrowRight size={18}/></button>
+    <section className="daily-summary-log">
+      <div className="section-heading"><h2>Movimientos de hoy</h2><span className="pill">{movements.length}</span></div>
+      {!movements.length ? <div className="empty"><div className="empty-icon"><Receipt size={26}/></div><h3>Aún no hay movimientos</h3><p>Los cobros y gastos aparecerán aquí en cuanto se registren.</p></div> : <div className="movement-list">
+        {movements.map(movement => <div className="movement" key={movement.id}>
+          <span className={`movement-icon ${movement.amount < 0 ? 'out' : ''}`}>{movement.amount < 0 ? <ArrowDownLeft size={17}/> : <ArrowUpRight size={17}/>}</span>
+          <div><strong>{movement.reason}</strong><small>{movementKindLabel(movement.kind)} · {businessLabel(movement.business)} · {dateTime(movement.created_at)} · {movement.method === 'efectivo' ? 'Efectivo' : 'Transferencia'}</small></div>
+          <b className={movement.amount < 0 ? 'negative' : 'positive'}>{movement.amount < 0 ? '−' : '+'}{money(Math.abs(movement.amount))}</b>
+        </div>)}
+      </div>}
+    </section>
+  </div>
+}
+
 /* ------------------------------------------------------------------ Menú */
 
 function Menu({ app }: { app: Restaurant }) {
@@ -837,7 +958,7 @@ function ProductForm({ app, product, close }: { app: Restaurant; product: Produc
   const [draft, setDraft] = useState(product)
   const [price, setPrice] = useState(product.price ? String(product.price / 100) : '')
 
-  return <Modal title={product.id ? 'Editar producto' : 'Nuevo producto'} close={close}>
+  return <Modal title={product.id ? 'Editar producto' : 'Nuevo producto'} close={close} page>
     <form className="form-stack" onSubmit={async event => {
       event.preventDefault()
       if (await app.saveProduct({ ...draft, price: cents(price), takeaway_fee: hasFee ? cents(fee) : 0 })) close()
@@ -886,49 +1007,196 @@ function Team({ app }: { app: Restaurant }) {
   const [adding, setAdding] = useState(false)
   const [name, setName] = useState('')
   const [email, setEmail] = useState('')
-  const [password, setPassword] = useState('')
+  const [password, setPassword] = useState(() => temporaryPassword())
   const [role, setRole] = useState<Role>('mesera')
+  const [search, setSearch] = useState('')
+  const [filter, setFilter] = useState<'activos' | 'todos' | 'inactivos'>('activos')
+  const [copied, setCopied] = useState(false)
+  const [emails, setEmails] = useState<Record<string, string>>({})
+  const [selected, setSelected] = useState<Profile | null>(null)
+  const [credential, setCredential] = useState<{ id: string; email: string; password: string } | null>(null)
+  const [credentialCopied, setCredentialCopied] = useState(false)
+  const [teamError, setTeamError] = useState('')
+  const people = app.data.profiles.filter(person =>
+    (filter === 'todos' || (filter === 'activos' ? person.active : !person.active)) && person.name.toLowerCase().includes(search.trim().toLowerCase()))
+  const activeCount = app.data.profiles.filter(person => person.active).length
+
+  useEffect(() => {
+    let alive = true
+    void app.getManagedUsers().then(users => {
+      if (alive) setEmails(Object.fromEntries(users.map(user => [user.id, user.email])))
+    }).catch(error => { if (alive) setTeamError(error instanceof Error ? error.message : 'No se pudieron cargar los correos.') })
+    return () => { alive = false }
+  }, [app.profile?.id])
 
   return <>
-    <div className="page-head">
-      <div><p className="eyebrow">Cada persona, su función</p><h1>Equipo</h1></div>
-      <button className="btn btn-primary" onClick={() => setAdding(true)}><Plus size={18}/>Agregar</button>
+    <div className="page-head team-page-head">
+      <div><p className="eyebrow">Accesos de Palatto</p><h1>Equipo</h1><p className="muted">{activeCount} cuentas activas · {app.data.profiles.length - activeCount} desactivadas</p></div>
+      <button className="btn btn-primary" onClick={() => { setPassword(temporaryPassword()); setAdding(true); setCopied(false) }}><Plus size={18}/>Crear cuenta</button>
     </div>
 
-    <ul className="team-list">
-      {app.data.profiles.map(person => <li className={`team-row ${person.active ? '' : 'inactive'}`} key={person.id}>
-        <span className="avatar">{person.name.slice(0, 1)}</span>
-        <div className="team-info"><strong>{person.name}</strong><small>{person.active ? labels[person.role] : 'Acceso desactivado'}</small></div>
-        <label className="sr-only" htmlFor={`role-${person.id}`}>Rol de {person.name}</label>
+    <section className="team-tools" aria-label="Buscar y filtrar cuentas">
+      <label className="search"><Search size={18}/><input value={search} onChange={event => setSearch(event.target.value)} placeholder="Buscar por nombre" aria-label="Buscar por nombre"/></label>
+      <div className="segmented" role="group" aria-label="Estado de las cuentas">
+        {([['activos', 'Activas'], ['todos', 'Todas'], ['inactivos', 'Desactivadas']] as const).map(([key, label]) => <button type="button" key={key} className={filter === key ? 'active' : ''} aria-pressed={filter === key} onClick={() => setFilter(key)}>{label}</button>)}
+      </div>
+    </section>
+
+    <ul className="team-list team-cards">
+      {people.map(person => <li className={`team-row ${person.active ? '' : 'inactive'}`} key={person.id}>
+        <button className="team-person" onClick={() => { setSelected(person); setCredential(null); setTeamError('') }} aria-label={`Ver cuenta de ${person.name}`}><span className="avatar avatar-lg">{person.name.slice(0, 1)}</span><div className="team-info"><strong>{person.name}</strong><small>{person.active ? 'Cuenta activa' : 'Acceso pausado'}{person.id === app.profile?.id ? ' · Tú' : ''}</small><span className="team-email-preview">{emails[person.id] || 'Ver datos de acceso'}</span></div><ArrowRight size={17}/></button>
+        <label className="team-role-label" htmlFor={`role-${person.id}`}>Rol</label>
         <select id={`role-${person.id}`} value={person.role} disabled={app.busy || person.id === app.profile?.id}
           onChange={event => void app.manageUser({ id: person.id, name: person.name, role: event.target.value as Role, active: person.active })}>
           {roles.map(item => <option key={item} value={item}>{labels[item]}</option>)}
         </select>
-        {person.id !== app.profile?.id && <button className="icon-button" aria-label={`${person.active ? 'Desactivar' : 'Activar'} a ${person.name}`} disabled={app.busy}
-          onClick={() => void app.manageUser({ id: person.id, name: person.name, role: person.role, active: !person.active })}><Power size={17}/></button>}
+        {person.id !== app.profile?.id && <button className={`team-access ${person.active ? '' : 'paused'}`} disabled={app.busy}
+          onClick={() => void app.manageUser({ id: person.id, name: person.name, role: person.role, active: !person.active })}><Power size={16}/>{person.active ? 'Desactivar' : 'Activar'}</button>}
       </li>)}
+      {!people.length && <li className="team-empty">No hay cuentas que coincidan con esta búsqueda.</li>}
     </ul>
 
     <details className="roles-guide">
       <summary>¿Qué puede hacer cada rol?</summary>
-      {[['Superadmin', 'Acceso total y gestión de usuarios.'], ['Administrador', 'Pedidos, menú y ambas cajas de Palatto.'], ['Cocinero', 'Toma y cobra pedidos de cocina.'], ['Mesera', 'Toma, modifica y cobra pedidos.'], ['Visualizador', 'Solo consulta, sin cambios.']].map(([title, description]) =>
+      {[['Superadmin', 'Acceso total y gestión de usuarios.'], ['Administrador', 'Pedidos, menú y ambas cajas de Palatto.'], ['Cocinero', 'Toma y cobra pedidos de cocina.'], ['Mesera', 'Toma, modifica y cobra pedidos.'], ['Mesero', 'Toma, modifica y cobra pedidos.'], ['Visualizador', 'Solo consulta, sin cambios.']].map(([title, description]) =>
         <div key={title}><strong>{title}</strong><p>{description}</p></div>)}
     </details>
 
-    {adding && <Modal title="Agregar al equipo" close={() => setAdding(false)}>
+    {adding && <Modal title="Agregar al equipo" close={() => setAdding(false)} page>
       <form className="form-stack" onSubmit={async event => {
         event.preventDefault()
-        if (await app.manageUser({ name, email, password, role })) { setName(''); setEmail(''); setPassword(''); setAdding(false) }
+        if (await app.manageUser({ name, email, password, role })) { setName(''); setEmail(''); setPassword(temporaryPassword()); setAdding(false) }
       }}>
         <label>Nombre<input required maxLength={100} value={name} onChange={event => setName(event.target.value)} placeholder="Ej. Ana Torres"/></label>
         <label>Correo<input type="email" inputMode="email" required value={email} onChange={event => setEmail(event.target.value)} placeholder="ana@correo.com"/></label>
-        <label>Contraseña inicial<input type="password" autoComplete="new-password" required minLength={10} value={password} onChange={event => setPassword(event.target.value)} placeholder="Mínimo 10 caracteres"/></label>
+        <div className="temporary-password"><label>Contraseña temporal<input type="text" autoComplete="off" required minLength={10} value={password} onChange={event => setPassword(event.target.value)} spellCheck={false}/></label>
+          <div className="temporary-actions"><button type="button" className="btn btn-ghost" onClick={() => { setPassword(temporaryPassword()); setCopied(false) }}><History size={17}/>Generar otra</button>
+            <button type="button" className="btn btn-ghost" onClick={() => { void navigator.clipboard.writeText(password); setCopied(true) }}><ClipboardList size={17}/>{copied ? 'Copiada' : 'Copiar'}</button></div>
+          <small>Compártela directamente con la persona. Se le pedirá cambiarla al ingresar.</small>
+        </div>
         <label>Rol<select value={role} onChange={event => setRole(event.target.value as Role)}>{roles.map(item => <option key={item} value={item}>{labels[item]}</option>)}</select></label>
         {app.error && <p className="alert alert-error" role="alert">{app.error}</p>}
         <button className="btn btn-primary btn-lg btn-block" disabled={app.busy}><Plus size={18}/>Crear usuario</button>
       </form>
     </Modal>}
+
+    {selected && <Modal title="Datos de acceso" close={() => setSelected(null)} page>
+      <div className="team-account-details">
+        <div className="team-account-identity"><span className="avatar avatar-lg">{selected.name.slice(0, 1)}</span><div><strong>{selected.name}</strong><small>{labels[selected.role]}</small></div></div>
+        <div className="credential-field"><small>Correo de ingreso</small><strong>{emails[selected.id] || 'Cargando correo…'}</strong></div>
+        <div className="credential-field"><small>Contraseña</small>{credential?.id === selected.id
+          ? <><code>{credential.password}</code><button type="button" className="btn btn-ghost btn-sm" onClick={() => { void navigator.clipboard.writeText(credential.password).then(() => setCredentialCopied(true)) }}><ClipboardList size={16}/>{credentialCopied ? 'Copiada' : 'Copiar contraseña'}</button></>
+          : <p>La contraseña actual está protegida y no se puede recuperar. Puedes generar una nueva contraseña temporal.</p>}</div>
+        {teamError && <p className="alert alert-error" role="alert">{teamError}</p>}
+        <button className="btn btn-primary btn-lg btn-block" disabled={app.busy} onClick={async () => {
+          const result = await app.resetUserPassword(selected.id)
+          if (result) { setCredential({ id: selected.id, email: result.email, password: result.temporaryPassword }); setEmails(current => ({ ...current, [selected.id]: result.email })); setCredentialCopied(false) }
+        }}><KeyRound size={18}/>Generar contraseña temporal</button>
+        <p className="tiny">Al iniciar sesión, la persona deberá cambiar la contraseña temporal.</p>
+      </div>
+    </Modal>}
   </>
+}
+
+function temporaryPassword() {
+  return `Pala-${crypto.randomUUID().replaceAll('-', '').slice(0, 12)}!`
+}
+
+function PasswordChange({ app, mandatory = false }: { app: Restaurant; mandatory?: boolean }) {
+  const [password, setPassword] = useState('')
+  const [confirm, setConfirm] = useState('')
+  const [show, setShow] = useState(false)
+  const [message, setMessage] = useState('')
+  const submit = async (event: FormEvent) => {
+    event.preventDefault()
+    setMessage('')
+    if (password.length < 10) { setMessage('Usa al menos 10 caracteres.'); return }
+    if (password !== confirm) { setMessage('Las contraseñas no coinciden.'); return }
+    await app.changePassword(password)
+  }
+  const form = <form className="form-stack" onSubmit={event => void submit(event)}>
+      <label>Nueva contraseña<input type={show ? 'text' : 'password'} autoComplete="new-password" minLength={10} value={password} onChange={event => setPassword(event.target.value)} required/></label>
+      <label>Repite la contraseña<input type={show ? 'text' : 'password'} autoComplete="new-password" minLength={10} value={confirm} onChange={event => setConfirm(event.target.value)} required/></label>
+      <label className="check-row"><input type="checkbox" checked={show} onChange={event => setShow(event.target.checked)}/>Mostrar contraseñas</label>
+      {(message || app.error) && <p className="alert alert-error" role="alert">{message || app.error}</p>}
+      <button className="btn btn-primary btn-lg btn-block" disabled={app.busy}>{app.busy ? 'Guardando…' : 'Guardar contraseña'}<Check size={18}/></button>
+    </form>
+  if (!mandatory) return <div className="password-inline"><div className="signin-heading"><h2>Cambiar contraseña</h2><p>Usa una contraseña que no compartas con otras cuentas.</p></div>{form}</div>
+  return <main className="signin"><section className="signin-card password-card">
+    <img className="signin-logo" src="/palatto-logo.png" alt="Palatto"/>
+    <div className="signin-heading"><h1>Crea tu contraseña</h1><p>Tu contraseña temporal es de un solo uso. Elige una personal para continuar.</p></div>
+    {form}
+  </section></main>
+}
+
+function AccountPage({ app, installPrompt, installed, navigate, onInstall }: { app: Restaurant; installPrompt: Event | null; installed: boolean; navigate: (page: Page) => void; onInstall: () => void }) {
+  const [passwordOpen, setPasswordOpen] = useState(false)
+  const [pushBusy, setPushBusy] = useState(false)
+  const [pushMessage, setPushMessage] = useState('')
+  const [pushEnabled, setPushEnabled] = useState(false)
+  const vapidPublicKey = import.meta.env.VITE_VAPID_PUBLIC_KEY as string | undefined
+  useEffect(() => {
+    if (!('serviceWorker' in navigator) || !('PushManager' in window)) return
+    void navigator.serviceWorker.ready.then(async registration => setPushEnabled(Boolean(await registration.pushManager.getSubscription()))).catch(() => undefined)
+  }, [])
+  async function togglePush() {
+    setPushBusy(true); setPushMessage('')
+    try {
+      if (!('serviceWorker' in navigator) || !('PushManager' in window) || !('Notification' in window)) throw new Error('Este navegador no admite notificaciones push.')
+      const registration = await navigator.serviceWorker.ready
+      const current = await registration.pushManager.getSubscription()
+      if (current) {
+        await app.push({ action: 'unsubscribe', endpoint: current.endpoint })
+        await current.unsubscribe()
+        setPushEnabled(false); setPushMessage('Notificaciones desactivadas en este dispositivo.')
+      } else {
+        if (!vapidPublicKey) throw new Error('Falta añadir VITE_VAPID_PUBLIC_KEY en Vercel para habilitar las notificaciones.')
+        const permission = await Notification.requestPermission()
+        if (permission !== 'granted') throw new Error('Permite las notificaciones para poder activarlas.')
+        const subscription = await registration.pushManager.subscribe({ userVisibleOnly: true, applicationServerKey: decodeVapidKey(vapidPublicKey) })
+        await app.push({ action: 'subscribe', subscription: subscription.toJSON() })
+        setPushEnabled(true); setPushMessage('Este dispositivo recibirá avisos de pedidos nuevos.')
+      }
+    } catch (error) { setPushMessage(error instanceof Error ? error.message : 'No se pudieron actualizar las notificaciones.') }
+    finally { setPushBusy(false) }
+  }
+  return <div className="settings-page">
+    <div className="page-head"><div><p className="eyebrow">Preferencias personales</p><h1>Tu cuenta</h1></div></div>
+    <section className="account-profile-card">
+      <span className="avatar avatar-lg">{app.profile!.name.slice(0, 1)}</span>
+      <div><strong>{app.profile!.name}</strong><small>{labels[app.role]}</small></div>
+      <span className="account-status"><Check size={15}/>Activa</span>
+    </section>
+    <section className="settings-card">
+      <div className="settings-card-title"><ShieldCheck size={20}/><div><h2>Seguridad</h2><p>Actualiza tu clave cuando quieras.</p></div></div>
+      <button className="account-link" onClick={() => setPasswordOpen(value => !value)}><span>{passwordOpen ? 'Cerrar cambio de contraseña' : 'Cambiar contraseña'}</span><ArrowRight size={18}/></button>
+      {passwordOpen && <PasswordChange app={app}/>}
+    </section>
+    <section className="settings-card">
+      <div className="settings-card-title"><Bell size={20}/><div><h2>Notificaciones</h2><p>Recibe un aviso cuando llegue un pedido nuevo.</p></div></div>
+      <button className={`btn ${pushEnabled ? 'btn-ghost' : 'btn-primary'} btn-block`} disabled={pushBusy} onClick={() => void togglePush()}>{pushBusy ? 'Actualizando…' : pushEnabled ? 'Desactivar en este dispositivo' : 'Activar notificaciones'}<Bell size={17}/></button>
+      {pushMessage && <p className="tiny" role="status">{pushMessage}</p>}
+      {typeof Notification !== 'undefined' && Notification.permission === 'denied' && <p className="tiny">El navegador bloqueó los avisos. Cámbialo en los permisos del sitio.</p>}
+    </section>
+    <section className="settings-card">
+      <div className="settings-card-title"><Download size={20}/><div><h2>Instalar Palatto</h2><p>Abre la app desde tu pantalla de inicio.</p></div></div>
+      {installed ? <p className="install-state"><Check size={17}/>Palatto ya está instalada en este dispositivo.</p>
+        : installPrompt ? <button className="btn btn-primary btn-block" onClick={onInstall}>Instalar aplicación<Download size={17}/></button>
+        : <p className="install-help">En el menú del navegador, elige <strong>Instalar aplicación</strong> o <strong>Añadir a pantalla principal</strong>.</p>}
+    </section>
+    <div className="account-links">
+      <button className="account-link" onClick={() => navigate('insumos')}><PackageOpen size={20}/><span>Insumos y stock</span><ArrowRight size={18}/></button>
+      {app.role === 'superadmin' && <button className="account-link" onClick={() => navigate('equipo')}><Users size={20}/><span>Equipo y cuentas</span><ArrowRight size={18}/></button>}
+    </div>
+    <button className="btn btn-ghost btn-block" disabled={app.busy} onClick={() => void app.logout()}><LogOut size={18}/>Cerrar sesión</button>
+    {app.notice && <p className="tiny center">{app.notice}</p>}
+  </div>
+}
+
+function decodeVapidKey(key: string) {
+  const normalized = key.replace(/-/g, '+').replace(/_/g, '/')
+  const raw = atob(normalized.padEnd(normalized.length + ((4 - normalized.length % 4) % 4), '='))
+  return Uint8Array.from(raw, char => char.charCodeAt(0))
 }
 
 /* --------------------------------------------------------------- Piezas */

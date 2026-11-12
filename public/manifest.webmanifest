@@ -1,0 +1,15 @@
+{
+  "id": "/",
+  "name": "My Palatto",
+  "short_name": "Palatto",
+  "description": "Pedidos, cobros y cajas de Palatto",
+  "lang": "es-EC",
+  "start_url": "/",
+  "scope": "/",
+  "display": "standalone",
+  "background_color": "#f7f2e9",
+  "theme_color": "#f7f2e9",
+  "icons": [
+    { "src": "/palatto-logo.png", "sizes": "640x640", "type": "image/png", "purpose": "any" }
+  ]
+}

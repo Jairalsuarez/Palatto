@@ -1,11 +1,13 @@
+import { orderSplit, orderTotal } from './domain'
 import type { Business, Method, Movement, Order, OrderPayment, Product } from './domain'
 
-export type RangeKey = 'hoy' | 'ayer' | '7d' | 'mes' | 'todo'
+export type RangeKey = 'hoy' | 'ayer' | '7d' | 'quincena' | 'mes' | 'todo'
 
 export const rangeLabels: Record<RangeKey, string> = {
   hoy: 'Hoy',
   ayer: 'Ayer',
-  '7d': '7 días',
+  '7d': 'Semana',
+  quincena: 'Quincena',
   mes: 'Este mes',
   todo: 'Todo',
 }
@@ -44,6 +46,13 @@ export function rangeDays(range: RangeKey, now = new Date()): string[] {
   if (range === 'hoy') return [today]
   if (range === 'ayer') return [shiftDay(today, -1)]
   if (range === '7d') return Array.from({ length: 7 }, (_, i) => shiftDay(today, i - 6))
+  if (range === 'quincena') {
+    const day = Number(today.slice(8, 10))
+    const start = `${today.slice(0, 7)}-${day <= 15 ? '01' : '16'}`
+    const days: string[] = []
+    for (let current = start; current <= today; current = shiftDay(current, 1)) days.push(current)
+    return days
+  }
   if (range === 'mes') {
     const start = `${today.slice(0, 7)}-01`
     const days: string[] = []
@@ -146,7 +155,8 @@ export function analyze(orders: Order[], products: Product[], range: RangeKey, n
   let itemsSold = 0
 
   for (const order of selected) {
-    const orderRevenue = order.items.reduce((sum, item) => sum + item.price * item.quantity, 0)
+    const orderRevenue = orderTotal(order)
+    const allocation = orderSplit(order)
     revenue += orderRevenue
     const split = splitByOrder.get(order.id)
     if (split?.length) {
@@ -165,9 +175,7 @@ export function analyze(orders: Order[], products: Product[], range: RangeKey, n
     for (const item of order.items) {
       const lineRevenue = item.price * item.quantity
       itemsSold += item.quantity
-      const business = byBusiness[item.business]
-      business.revenue += lineRevenue
-      business.items += item.quantity
+      byBusiness[item.business].items += item.quantity
       seenBusinesses.add(item.business)
 
       const category = categoryByProduct.get(item.product_id) || 'Otros'
@@ -188,7 +196,10 @@ export function analyze(orders: Order[], products: Product[], range: RangeKey, n
       categoryRow.revenue += lineRevenue
       categoryMap.set(category, categoryRow)
     }
-    for (const business of seenBusinesses) byBusiness[business].orders += 1
+    for (const business of seenBusinesses) {
+      byBusiness[business].revenue += allocation[business]
+      byBusiness[business].orders += 1
+    }
   }
 
   const validHours = byHour.filter(hour => hour.revenue > 0)
@@ -221,7 +232,7 @@ export function dailyTrend(orders: Order[], days = 14, now = new Date(), paidAt?
     if (!order.paid) continue
     const position = index.get(dayKey(paidDate(order, paidAt)))
     if (position === undefined) continue
-    series[position].revenue += order.items.reduce((sum, item) => sum + item.price * item.quantity, 0)
+    series[position].revenue += orderTotal(order)
     series[position].orders += 1
   }
   return series
@@ -253,6 +264,21 @@ export function salesCsv(orders: Order[], products: Product[], range: RangeKey, 
         String(item.quantity),
         (item.price / 100).toFixed(2),
         ((item.price * item.quantity) / 100).toFixed(2),
+        splitOrders.has(order.id) ? 'Dividido' : order.method === 'transferencia' ? 'Transferencia' : 'Efectivo',
+      ])
+    }
+    if (order.adjustment) {
+      rows.push([
+        date,
+        time,
+        String(order.number),
+        order.customer,
+        'Ajuste',
+        'Ajuste de total',
+        order.adjustment_reason ? `Ajuste: ${order.adjustment_reason}` : 'Ajuste de total',
+        '1',
+        (order.adjustment / 100).toFixed(2),
+        (order.adjustment / 100).toFixed(2),
         splitOrders.has(order.id) ? 'Dividido' : order.method === 'transferencia' ? 'Transferencia' : 'Efectivo',
       ])
     }

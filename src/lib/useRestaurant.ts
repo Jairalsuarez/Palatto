@@ -131,6 +131,19 @@ export function useRestaurant() {
             if (error)
                 throw error;
         } setProfile(null); setData(empty); }, ''),
+        changePassword: (password: string) => run(async () => {
+            if (!supabase || password.length < 10) throw new Error('La contraseña debe tener al menos 10 caracteres.');
+            const { data: result, error } = await supabase.functions.invoke('manage-users', { body: { action: 'change_password', password } });
+            if (error) throw error;
+            if (result?.error) throw new Error(result.error);
+        }, 'Contraseña actualizada'),
+        push: async (values: Record<string, unknown>) => {
+            if (!supabase) throw new Error('No se pudo conectar con Supabase.');
+            const { data: result, error } = await supabase.functions.invoke('palatto-push', { body: values });
+            if (error) throw error;
+            if (result?.error) throw new Error(result.error);
+            return result;
+        },
         saveOrder: (customer: string, notes: string, items: Item[], order?: Order, reason = '', received = 0, receipt: string | null = null, takeaway = false) => run(async () => {
             writer();
             checkItems(items, order?.items);
@@ -146,14 +159,17 @@ export function useRestaurant() {
                 const args = { p_takeaway: takeaway, p_customer: customer, p_notes: notes, p_items: items.map(i => ({ product_id: i.product_id, quantity: i.quantity })) };
                 await rpc(order ? 'edit_order' : 'create_order', order ? { ...args, p_id: order.id, p_version: order.version, p_reason: reason, p_received: received, p_receipt: receipt } : args);
             }
+            if (!order && supabase) try { await supabase.functions.invoke('palatto-push', { body: { action: 'notify_new_order' } }); } catch { /* Push delivery must not undo an order. */ }
         }, order ? 'Pedido actualizado. Ajustes registrados por caja.' : 'Pedido enviado a la cola'),
 
-        pay: (order: Order, method: Method, received: number, receipt: string | null) => run(async () => {
+        pay: (order: Order, method: Method, received: number, receipt: string | null, amount = total(order.items), reason = '') => run(async () => {
             writer();
             if (order.paid) throw new Error('Este pedido ya está completado.');
             if (data.order_payments.some(payment => payment.order_id === order.id)) throw new Error('Este pedido tiene pagos divididos. Cobra el resto desde Dividir cuenta.');
-            validatePayment(total(order.items), method, received, receipt);
-            await rpc('pay_order', { p_id: order.id, p_version: order.version, p_method: method, p_received: received, p_receipt: receipt });
+            if (!Number.isSafeInteger(amount) || amount <= 0) throw new Error('El total debe ser un importe mayor a cero.');
+            if (amount !== total(order.items) && reason.trim().length < 3) throw new Error('Explica el motivo del ajuste al total.');
+            validatePayment(amount, method, received, receipt);
+            await rpc('pay_order', { p_id: order.id, p_version: order.version, p_method: method, p_received: received, p_receipt: receipt, p_total: amount, p_reason: reason.trim() || null });
         }, 'Pedido completado. Pago registrado en las cajas.'),
         splitPay: (order: Order, label: string, items: Item[], method: Method, received: number, receipt: string | null) => run(async () => {
             writer();
@@ -204,6 +220,24 @@ export function useRestaurant() {
             if (error) throw error;
             if (result?.error) throw new Error(result.error);
         }, 'Usuario guardado'),
+        getManagedUsers: async (): Promise<{ id: string; email: string }[]> => {
+            if (role !== 'superadmin') throw new Error('Solo el superadmin puede ver las cuentas del equipo.');
+            const { data: result, error } = await supabase!.functions.invoke('manage-users', { body: { action: 'list_users' } });
+            if (error) throw error;
+            if (result?.error) throw new Error(result.error);
+            return result?.users || [];
+        },
+        resetUserPassword: async (userId: string): Promise<{ email: string; temporaryPassword: string } | null> => {
+            if (role !== 'superadmin') { setError('Solo el superadmin puede generar contraseñas temporales.'); return null; }
+            let credential: { email: string; temporaryPassword: string } | null = null;
+            const success = await run(async () => {
+                const { data: result, error } = await supabase!.functions.invoke('manage-users', { body: { action: 'reset_password', id: userId } });
+                if (error) throw error;
+                if (result?.error) throw new Error(result.error);
+                credential = { email: result.email, temporaryPassword: result.temporaryPassword };
+            }, 'Contraseña temporal generada');
+            return success ? credential : null;
+        },
         async upload(file: File): Promise<string> {
             if (!['image/jpeg', 'image/png', 'image/webp'].includes(file.type) || file.size > 5 * 1024 * 1024) throw new Error('Usa una imagen JPG, PNG o WebP de hasta 5 MB.');
             const path = `${profile!.id}/${id()}.${file.type.split('/')[1]}`;

@@ -28,7 +28,7 @@ language sql stable security definer set search_path = '' as $$
  select coalesce(
   public.current_app_role()='superadmin'
   or public.current_app_role()='administrador'
-  or public.current_app_role()='carreta',
+  or (b='carreta' and public.current_app_role()='carreta'),
  false);
 $$;
 

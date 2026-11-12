@@ -26,6 +26,8 @@ Migraciones aplicadas y sincronizadas con los nombres locales:
 - `20261111120000_inventory.sql`: insumos, movimientos de stock y permisos.
 - `20261111130000_delete_order.sql`: eliminación de pedidos sin cobrar y registro en `deleted_orders`.
 - `20261111140000_single_business_split_payments.sql`: un solo negocio, cajas principal y de aguas y colas, movimientos por tipo y pagos divididos por persona.
+- `20261112073211_account_security_and_push_subscriptions.sql`: cambio obligatorio de contraseña temporal y almacenamiento privado de suscripciones push.
+- `20261112090000_order_total_adjustment.sql`: total ajustable al cobrar, motivo obligatorio y reparto proporcional entre cajas.
 
 Tablas: `profiles`, `products`, `shifts`, `orders`, `order_payments`, `movements`, `audits`, `supplies`, `supply_movements`, `deleted_orders`. Todas tienen RLS. Las escrituras del cliente solo pasan por funciones que comprueban el rol actual. El bucket `receipts` es privado, acepta imágenes de hasta 5 MB y usa enlaces temporales para visualizarlas.
 
@@ -50,6 +52,7 @@ Hay dos productos de prueba en el menú. El administrador debe reemplazarlos por
 - Efectivo exige importe recibido y calcula suelto. Transferencia exige una imagen cargada en Storage antes de confirmar.
 - Un pedido mixto genera movimientos independientes por caja usando el medio real del cobro. La caja de aguas y colas acepta efectivo y transferencia. El suelto no se contabiliza como venta.
 - Una cuenta se puede dividir por persona sin crear otro pedido: se eligen los productos de cada persona y su forma de pago. La tabla `order_payments` guarda cada parte; el pedido se marca cobrado al cubrir el total. Mientras haya pagos parciales se bloquean `pay_order`, `edit_order` y `delete_order`.
+- Al cobrar se puede modificar el total final, con un motivo obligatorio cuando cambia. El ajuste queda en `orders.adjustment` y `orders.adjustment_reason`, se audita y se reparte proporcionalmente entre la caja principal y la de aguas y colas.
 - Los movimientos de caja distinguen `ingreso`, `gasto`, `retiro`, `cobro`, `correccion` y `transferencia`. Un gasto es una compra o salida operativa; un retiro es dinero que sale del negocio. Ambos se muestran por separado.
 - Solo Superadmin puede transferir entre cajas. Requiere saldo suficiente en el medio elegido y motivo; genera dos asientos vinculados en una transacción.
 - Pedidos cobrados admiten correcciones con motivo, salvo que tengan pagos divididos. El historial conserva la versión anterior y agrega diferencias al libro de movimientos. Si cambia el total se cobra o devuelve la diferencia usando el medio original; una transferencia adicional o devolución requiere comprobante.
@@ -60,7 +63,7 @@ Hay dos productos de prueba en el menú. El administrador debe reemplazarlos por
 
 La app está diseñada primero para el teléfono y se maneja con una mano:
 
-- **Barra inferior** con cinco accesos: Inicio, Cajas, Nuevo (botón central elevado), Reportes y Menú. Insumos y Equipo viven en la hoja de cuenta del avatar.
+- **Barra inferior** con cinco accesos: Inicio, Caja, Nuevo (botón central elevado), Reportes y Menú. Insumos y Equipo viven en la hoja de cuenta del avatar.
 - **Paleta cálida** tomada del logo: crema, tinta, cobre para acciones de marca, verde para dinero y rojo solo para acciones destructivas.
 - **Tipografía** Bricolage Grotesque para títulos, importes y números; Manrope para el resto de la interfaz.
 - **Botones de al menos 48 px** para las acciones importantes; el cobro y el envío a cocina usan 56 px. Formularios, steppers y hojas inferiores respetan áreas táctiles y `safe-area-inset-bottom`.
@@ -87,6 +90,37 @@ El asesor de seguridad señala las RPC `SECURITY DEFINER` accesibles a usuarios 
 
 La cuenta Superadmin ya existe y el esquema remoto está actualizado. Falta cargar el menú y los precios reales (hoy hay dos productos de prueba), probar el inicio de sesión con esa cuenta y publicar el frontend en el alojamiento que se elija. La aplicación requiere conexión a Internet.
 
+### Publicar en Vercel
+
+El repositorio ya incluye `vercel.json` con la configuración de Vite y la reescritura a `index.html`. Para publicarlo:
+
+1. Importa el repositorio en Vercel y deja el framework detectado como **Vite**. Build: `npm run build`; salida: `dist`.
+2. En **Settings → Environment Variables** agrega, para Production, Preview y Development:
+   - `VITE_SUPABASE_URL` = `https://uosswtbajrjcegyaqwdb.supabase.co`
+   - `VITE_SUPABASE_ANON_KEY` = la clave pública `anon` del proyecto (la misma de `.env.local`). Nunca uses `service_role`.
+   - `VITE_VAPID_PUBLIC_KEY` = clave pública VAPID usada por el servicio push. Es pública y la aplicación la necesita al construir.
+3. Despliega. Las variables `VITE_*` se incrustan al construir, así que después de cambiarlas hay que volver a desplegar.
+4. En Supabase, **Authentication → URL Configuration**, define el dominio de producción como **Site URL** y agrégalo a **Redirect URLs** (`https://tu-dominio.vercel.app/**`). El inicio de sesión con correo y contraseña no necesita callback, pero esto evita bloqueos de seguridad y cubre futuros enlaces de recuperación.
+5. Comprueba el dominio publicado: inicio de sesión, carga de pedidos, cajas, cobro dividido y una foto de menú.
+
+No se requiere `vercel dev` ni un servidor Node: es un sitio estático que habla directo con Supabase.
+
+### Cuentas, instalación y notificaciones push
+
+Superadmin crea cada cuenta con una contraseña temporal generada desde Equipo. La persona debe elegir una contraseña propia en su primer ingreso. Luego puede cambiarla desde Tu cuenta → Seguridad. La contraseña temporal debe compartirse de forma privada.
+
+La aplicación incluye un manifiesto PWA y un service worker para instalar Palatto desde el navegador. En Android/Chrome usa **Instalar aplicación**; en iPhone/iPad abre Compartir → **Añadir a pantalla de inicio**. La instalación requiere el dominio de producción por HTTPS.
+
+Las notificaciones push avisan de pedidos nuevos a los demás usuarios activos que las habilitaron en ese dispositivo. Para completar su envío en producción:
+
+1. Genera un par VAPID una sola vez con `npx web-push generate-vapid-keys` y conserva ambas claves. No vuelvas a generarlas después de que los usuarios se suscriban.
+2. En **Vercel → Project → Settings → Environment Variables**, crea `VITE_VAPID_PUBLIC_KEY` con la clave pública para Production, Preview y Development; luego vuelve a desplegar. Los cambios de variables solo llegan a despliegues nuevos.
+3. En **Supabase → Project Settings → Edge Functions → Secrets**, agrega `PALATTO_VAPID_PUBLIC_KEY` con esa misma clave pública, `PALATTO_VAPID_PRIVATE_KEY` con la clave privada y `PALATTO_VAPID_SUBJECT` con un contacto real, por ejemplo `mailto:tu-correo@dominio.com`. La clave privada se guarda solo en Supabase; nunca la pongas en Vercel ni en el frontend.
+4. Inicia sesión en Palatto desde un navegador compatible, abre Tu cuenta → Notificaciones y pulsa **Activar notificaciones**. Cada dispositivo debe aceptar el permiso.
+
+La migración y las funciones Edge `manage-users` y `palatto-push` ya están aplicadas al proyecto Supabase. Falta configurar el par VAPID y desplegar esta versión del frontend en Vercel para habilitar el flujo completo.
+
+
 
 ### Reportes y análisis de ventas
 La pestaña **Reportes** calcula todo desde los pedidos cobrados, sin tablas nuevas. Incluye:
@@ -112,7 +146,7 @@ La migración `20261111120000_inventory.sql` crea las tablas `supplies` y `suppl
 Si las tablas no existen (por ejemplo, en un proyecto nuevo), la app detecta el caso y guarda el inventario en el navegador (`localStorage`), mostrando un aviso en pantalla. Los reportes no dependen de esta migración.
 
 ### Inicio, cajas y menú visual
-El inicio muestra las ventas de hoy, los saldos de la caja principal y del registro de aguas y colas, y los pedidos como tarjetas. Cada caja abre su pantalla de movimientos y su reporte del día. No hay turnos. Solo Superadmin puede transferir entre cajas: requiere saldo suficiente en el medio seleccionado y motivo, y genera dos asientos vinculados en una transacción.
+El inicio muestra la caja principal como bloque principal, con su saldo, las ventas del día, una carita que evoluciona según lo vendido y los gastos del día al lado. Aguas y colas aparece como un acceso secundario y discreto. La pestaña Caja abre directamente la caja principal; desde ahí se entra a la caja de aguas y colas. No hay turnos. Solo Superadmin puede transferir entre cajas: requiere saldo suficiente en el medio seleccionado y motivo, y genera dos asientos vinculados en una transacción.
 
 Las fotos se cargan desde Menú al crear o editar productos (JPG, PNG o WebP, hasta 5 MB). Las imágenes del menú son públicas; los comprobantes siguen siendo privados. El número mostrado en una orden nueva es provisional hasta que PostgreSQL asigna el definitivo al guardarla.
 
@@ -127,6 +161,9 @@ Los precios efectivos se calculan en PostgreSQL y se guardan junto con precio ba
 
 ### Un solo negocio y pagos divididos
 La migración `20261111140000_single_business_split_payments.sql` está aplicada al proyecto remoto desde el 11 de noviembre de 2026. Reutiliza el valor interno `carreta` para la caja de aguas y colas, elimina la exigencia de turnos, separa gasto de retiro, permite transferencias en la caja de aguas y colas y crea `order_payments` con la función `add_split_payment`. Los pedidos históricos conservan sus movimientos y se normalizaron a los nuevos tipos de movimiento.
+
+### Total ajustable al cobrar
+La migración `20261112090000_order_total_adjustment.sql` está aplicada al proyecto remoto desde el 12 de noviembre de 2026. Agrega `orders.adjustment` y `orders.adjustment_reason`, y amplía `pay_order` con `p_total` y `p_reason`. Si el total final difiere del total de los productos, el motivo es obligatorio. Los movimientos se reparten de forma proporcional entre las cajas y el ajuste aparece en el detalle del pedido, en los reportes y en el CSV.
 
 ### Conexión MCP de OpenCode
 El MCP remoto de Supabase está configurado con el `project_ref` de Palatto y autenticado por OAuth. El token se guarda en `~/.local/share/opencode/mcp-auth.json`, fuera del repositorio. La configuración solo contiene el `project_ref` y las funciones habilitadas.

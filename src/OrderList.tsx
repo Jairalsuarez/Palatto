@@ -1,5 +1,5 @@
 import { Banknote, ChevronRight, Users } from 'lucide-react'
-import { money, total } from './lib/domain'
+import { money, orderTotal } from './lib/domain'
 import type { Order, OrderPayment } from './lib/domain'
 
 const number = (n: number) => String(n).padStart(4, '0')
@@ -13,7 +13,8 @@ export function OrderList({ orders, canPay, payments, open, pay }: { orders: Ord
       const payable = !order.paid && canPay
       const split = payments.filter(payment => payment.order_id === order.id)
       const splitPaid = split.reduce((sum, payment) => sum + payment.amount, 0)
-      const remaining = Math.max(0, total(order.items) - splitPaid)
+      const orderValue = orderTotal(order)
+      const remaining = Math.max(0, orderValue - splitPaid)
       return <li className={`order-card ${order.paid ? 'paid' : ''}`} key={order.id}>
         <button type="button" className="order-card-main" onClick={() => open(order)} aria-label={`Ver pedido #${number(order.number)}`}>
           <span className="order-top">
@@ -31,7 +32,7 @@ export function OrderList({ orders, canPay, payments, open, pay }: { orders: Ord
           {!!split.length && <span className="order-split-line"><Users size={14} aria-hidden="true"/>{split.length} {split.length === 1 ? 'pago' : 'pagos'} · falta {money(remaining)}</span>}
         </button>
         <div className="order-foot">
-          <span className="order-total">{money(total(order.items))}</span>
+          <span className="order-total">{money(orderValue)}</span>
           {payable
             ? <button type="button" className="btn btn-money btn-sm" onClick={() => pay(order)}>
                 <Banknote size={17} aria-hidden="true"/>{split.length ? 'Cobrar resto' : 'Cobrar'}

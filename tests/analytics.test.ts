@@ -86,6 +86,21 @@ test('Analítica: la venta cuenta el día y la hora en que se cobró', () => {
   assert.equal(dailyTrend([late], 2, now, paidAt)[0].revenue, 0)
 })
 
+test('Analítica: el total ajustado se refleja en ventas, cajas y CSV', () => {
+  const adjusted = order('2026-11-11T15:10:00Z', [item(products[0], 2), item(products[1], 1)])
+  adjusted.adjustment = -100
+  adjusted.adjustment_reason = 'Descuento acordado'
+  const today = analyze([adjusted], products, 'hoy', new Date('2026-11-12T04:00:00Z'))
+  assert.equal(today.revenue, 1500)
+  assert.deepEqual(today.byBusiness.palatto, { revenue: 1313, orders: 1, items: 2 })
+  assert.deepEqual(today.byBusiness.carreta, { revenue: 187, orders: 1, items: 1 })
+  assert.equal(today.byHour[10].revenue, 1500)
+  const csv = salesCsv([adjusted], products, 'hoy', new Date('2026-11-11T18:00:00Z'))
+  assert.match(csv, /Ajuste de total/)
+  assert.match(csv, /Descuento acordado/)
+  assert.match(csv, /"-1.00"/)
+})
+
 test('Analítica: tendencia diaria y exportación CSV', () => {
   const orders = [order('2026-11-11T15:10:00Z', [item(products[0], 2), item(products[1], 1)])]
   const trend = dailyTrend(orders, 3, new Date('2026-11-11T18:00:00Z'))

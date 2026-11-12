@@ -168,4 +168,31 @@ test('Un solo negocio con dos cajas, pagos divididos y movimientos diferenciados
     const order = await scalar("select create_order('Mesa 6','',$1::jsonb)", [burgerItems])
     await assert.rejects(db.query("select pay_order($1,1,'transferencia',0)", [order]), /foto válida/)
   })
+
+  await t.test('El cobro ajusta el total con motivo y reparte proporcionalmente', async () => {
+    await user('mesera')
+    const order = await scalar("select create_order('Mesa ajuste','',$1::jsonb)", [mixedItems])
+    await assert.rejects(db.query("select pay_order($1,1,'efectivo',800,null,800,null)", [order]), /motivo del ajuste/)
+    await db.query("select pay_order($1,1,'efectivo',800,null,800,'Descuento acordado')", [order])
+    assert.equal(await scalar('select adjustment from orders where id=$1', [order]), -100)
+    assert.equal(await scalar('select adjustment_reason from orders where id=$1', [order]), 'Descuento acordado')
+    assert.deepEqual((await db.query('select business,amount from movements where order_id=$1 order by amount', [order])).rows, [
+      { business: 'carreta', amount: 178 },
+      { business: 'palatto', amount: 622 },
+    ])
+    assert.equal(await scalar('select sum(amount)::integer from movements where order_id=$1', [order]), 800)
+  })
+
+  await t.test('El cobro acepta un recargo y mantiene el reparto', async () => {
+    await user('mesera')
+    const order = await scalar("select create_order('Mesa recargo','',$1::jsonb)", [mixedItems])
+    const receipt = `${ids.mesera}/comprobante-recargo.jpg`
+    await db.query("insert into storage.objects(bucket_id,name) values('receipts',$1)", [receipt])
+    await db.query("select pay_order($1,1,'transferencia',0,$2,950,'Servicio adicional')", [order, receipt])
+    assert.equal(await scalar('select adjustment from orders where id=$1', [order]), 50)
+    assert.deepEqual((await db.query('select business,amount from movements where order_id=$1 order by amount', [order])).rows, [
+      { business: 'carreta', amount: 211 },
+      { business: 'palatto', amount: 739 },
+    ])
+  })
 })

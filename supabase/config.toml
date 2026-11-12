@@ -4,3 +4,6 @@ project_id = "uosswtbajrjcegyaqwdb"
 verify_jwt = false
 # The function verifies the bearer JWT with auth.getUser and checks the current
 # database role before using the service role, supporting publishable API keys.
+
+[functions.palatto-push]
+verify_jwt = false
