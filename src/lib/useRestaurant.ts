@@ -214,6 +214,7 @@ export function useRestaurant() {
             const path = profile!.id + '/' + id() + '.' + file.type.split('/')[1];
             const { error } = await supabase!.storage.from('menu-images').upload(path, file, { contentType: file.type });
             if (error) throw error;
+            void notifyActivity('product_photo_saved');
             return path;
         },
         manageUser: (values: { name: string; email?: string; password?: string; role: Role; id?: string; active?: boolean }) => run(async () => {

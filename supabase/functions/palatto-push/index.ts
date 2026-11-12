@@ -56,6 +56,7 @@ Deno.serve(async request => {
         split_payment: { title: 'Pago registrado', body: 'Se registró un pago dividido.' },
         order_deleted: { title: 'Pedido eliminado', body: 'Se eliminó un pedido pendiente.' },
         product_saved: { title: 'Menú actualizado', body: 'Se guardó un cambio en el menú.' },
+        product_photo_saved: { title: 'Foto del menú actualizada', body: 'Se subió una foto de producto al menú.' },
         cash_movement: { title: 'Movimiento de caja', body: 'Se registró un ingreso, gasto o retiro.' },
         cash_transfer: { title: 'Transferencia de caja', body: 'Se registró una transferencia entre cajas.' },
         user_saved: { title: 'Equipo actualizado', body: 'Se guardó un cambio en una cuenta del equipo.' },

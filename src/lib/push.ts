@@ -7,6 +7,7 @@ export type PushActivity =
   | 'split_payment'
   | 'order_deleted'
   | 'product_saved'
+  | 'product_photo_saved'
   | 'cash_movement'
   | 'cash_transfer'
   | 'user_saved'
