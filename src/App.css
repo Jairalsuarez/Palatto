@@ -1978,41 +1978,77 @@ dialog.native-dialog.dialog-large {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: 8px;
+  gap: 10px;
   margin-bottom: 6px;
   padding: 8px 10px;
   border-radius: 12px;
   background: var(--surface-2);
+  color: var(--ink-soft);
+  font-size: .78rem;
+  font-weight: 700;
+  cursor: pointer;
+}
+.takeaway-summary input[role="switch"] {
+  appearance: none;
+  position: relative;
+  width: 36px;
+  height: 21px;
+  margin: 0;
+  border: 0;
+  border-radius: 999px;
+  background: var(--line-strong, #c8c4bd);
+  cursor: pointer;
+  transition: background .16s ease;
+}
+.takeaway-summary input[role="switch"]::after {
+  content: '';
+  position: absolute;
+  top: 3px;
+  left: 3px;
+  width: 15px;
+  height: 15px;
+  border-radius: 50%;
+  background: white;
+  transition: transform .16s ease;
+  box-shadow: 0 1px 3px #0002;
+}
+.takeaway-summary input[role="switch"]:checked { background: var(--copper); }
+.takeaway-summary input[role="switch"]:checked::after { transform: translateX(15px); }
+.takeaway-summary input[role="switch"]:focus-visible { outline: 3px solid color-mix(in oklab, var(--copper) 45%, transparent); outline-offset: 2px; }
+.takeaway-control {
+  position: relative;
+  margin-left: auto;
   color: var(--muted);
-  font-size: .74rem;
+  font-size: .68rem;
   font-weight: 650;
 }
-.takeaway-summary > div { display: flex; gap: 4px; }
-.takeaway-summary button {
-  min-height: 32px;
-  padding: 0 9px;
-  border: 0;
-  border-radius: 8px;
-  background: var(--surface);
-  color: var(--ink-soft);
-  font-size: .68rem;
-  font-weight: 700;
+.takeaway-control summary {
+  list-style: none;
+  padding: 4px 7px;
+  border-radius: 7px;
+  cursor: pointer;
 }
-.takeaway-summary button:disabled { opacity: .45; }
-.takeaway-control {
+.takeaway-control summary::-webkit-details-marker { display: none; }
+.takeaway-control summary:hover { background: var(--surface-2); color: var(--ink); }
+.takeaway-item-edit {
+  position: absolute;
+  z-index: 2;
+  top: calc(100% + 4px);
+  right: 0;
   display: flex;
   align-items: center;
-  justify-content: flex-end;
   gap: 8px;
-  width: 100%;
-  padding-top: 2px;
-  color: var(--copper-dark);
-  font-size: .72rem;
-  font-weight: 700;
+  padding: 6px 8px;
+  border: 1px solid var(--line);
+  border-radius: 9px;
+  background: var(--surface);
+  box-shadow: 0 5px 16px #0002;
+  color: var(--ink-soft);
+  white-space: nowrap;
 }
 .stepper-sm { padding: 2px; }
-.stepper-sm button { width: 32px; height: 32px; }
-.stepper-sm span { min-width: 20px; font-size: .84rem; }
+.stepper-sm button { width: 26px; height: 26px; }
+.stepper-sm span { min-width: 16px; font-size: .76rem; }
 
 .editor-foot { flex-wrap: wrap; }
 .editor-foot-actions {

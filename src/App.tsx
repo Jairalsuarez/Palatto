@@ -650,7 +650,6 @@ function OrderEditor({ app, order, back, done, pay }: { app: Restaurant; order?:
   const itemsTotal = total(items)
   const takeawayFee = items.reduce((sum, item) => sum + (item.takeaway_fee || 0) * (item.takeaway_quantity || 0), 0)
   const quantityTotal = items.reduce((sum, item) => sum + item.quantity, 0)
-  const takeawayTotal = items.reduce((sum, item) => sum + (item.takeaway_quantity || 0), 0)
   const allTakeaway = items.length > 0 && items.every(item => (item.takeaway_quantity || 0) >= item.quantity)
   const nextNumber = order?.number ?? Math.max(0, ...app.data.orders.filter(item => dayKey(item.created_at) === dayKey(new Date())).map(item => item.number)) + 1
 
@@ -684,7 +683,7 @@ function OrderEditor({ app, order, back, done, pay }: { app: Restaurant; order?:
       : item))
   }
   function setAllTakeaway(value: boolean) {
-    setItems(current => current.map(item => ({ ...item, takeaway_quantity: item.takeaway_fee ? (value ? item.quantity : 0) : 0 })))
+    setItems(current => current.map(item => ({ ...item, takeaway_quantity: value ? item.quantity : 0 })))
   }
   async function submit(charge: boolean) {
     if (!items.length) { app.setError('Añade al menos un producto.'); return }
@@ -707,13 +706,10 @@ function OrderEditor({ app, order, back, done, pay }: { app: Restaurant; order?:
         {items.length === 0
           ? <div className="add-first-hint">Aún no has agregado productos.</div>
           : <>
-              <div className="takeaway-summary">
-                <span>{takeawayTotal ? `${takeawayTotal} de ${quantityTotal} para llevar` : 'Todo para servir'}</span>
-                <div>
-                  <button type="button" onClick={() => setAllTakeaway(false)} disabled={!takeawayTotal}>Todo para servir</button>
-                  <button type="button" onClick={() => setAllTakeaway(true)}>Todo para llevar</button>
-                </div>
-              </div>
+              <label className="takeaway-summary">
+                <span>Para llevar</span>
+                <input type="checkbox" role="switch" aria-label="Marcar todos los productos para llevar" checked={allTakeaway} onChange={event => setAllTakeaway(event.target.checked)}/>
+              </label>
               <ul className="basket">
                 {items.map(item => <li key={item.product_id} className={item.takeaway_quantity ? 'has-takeaway' : ''}>
                   <div className="basket-info">
@@ -727,14 +723,20 @@ function OrderEditor({ app, order, back, done, pay }: { app: Restaurant; order?:
                       disabled={item.quantity >= 99 || !app.data.products.find(product => product.id === item.product_id)?.active}><Plus size={16}/></button>
                   </div>
                   <b className="basket-price">{money(itemTotal(item))}</b>
-                  {!!item.takeaway_fee && <div className="takeaway-control">
-                    <span>Para llevar</span>
-                    <div className="stepper stepper-sm">
-                      <button type="button" aria-label={`Quitar uno para llevar de ${item.name}`} onClick={() => takeaway(item.product_id, -1)} disabled={!item.takeaway_quantity}><Minus size={14}/></button>
-                      <span>{item.takeaway_quantity || 0}</span>
-                      <button type="button" aria-label={`Añadir uno para llevar de ${item.name}`} onClick={() => takeaway(item.product_id, 1)} disabled={(item.takeaway_quantity || 0) >= item.quantity}><Plus size={14}/></button>
+                  <details className="takeaway-control">
+                    <summary aria-label={`Editar servicio de ${item.name}`}>
+                      <span>{item.takeaway_quantity ? `${item.takeaway_quantity}/${item.quantity} llevar` : 'Servicio'}</span>
+                    </summary>
+                    <div className="takeaway-item-edit">
+                      <span>Para llevar</span>
+                      <div className="stepper stepper-sm">
+                        <button type="button" aria-label={`Quitar uno para llevar de ${item.name}`} onClick={() => takeaway(item.product_id, -1)} disabled={!item.takeaway_quantity}><Minus size={12}/></button>
+                        <span>{item.takeaway_quantity || 0}</span>
+                        <button type="button" aria-label={`Añadir uno para llevar de ${item.name}`} onClick={() => takeaway(item.product_id, 1)} disabled={(item.takeaway_quantity || 0) >= item.quantity}><Plus size={12}/></button>
+                      </div>
+                      {(item.takeaway_fee || 0) > 0 && <small>+{money(item.takeaway_fee || 0)} por unidad</small>}
                     </div>
-                  </div>}
+                  </details>
                 </li>)}
               </ul>
             </>}
