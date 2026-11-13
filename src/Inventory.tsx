@@ -78,8 +78,8 @@ export function Inventory({ app }: { app: Restaurant }) {
           }}>Factura</button>}
           <div className="simple-supply-status"><span className={item.paid ? 'purchase-paid' : 'purchase-pending'}>{item.paid ? 'Pagado' : 'Pendiente'}</span>
             {canEdit && (item.paid
-              ? <button className="paid-switch is-paid" type="button" disabled={inventory.busy} role="switch" aria-checked="true" aria-label={`Cambiar ${name} a pendiente`} onClick={() => setConfirmPending(item.id)}><span/></button>
-              : <div className="pending-actions"><select aria-label={`Medio de pago de ${name}`} value={paymentMethod[item.id] || 'efectivo'} onChange={event => setPaymentMethod(current => ({ ...current, [item.id]: event.target.value as 'efectivo' | 'transferencia' }))}><option value="efectivo">Efectivo</option><option value="transferencia">Transferencia</option></select><button className="paid-switch" type="button" disabled={inventory.busy} role="switch" aria-checked="false" aria-label={`Marcar ${name} como pagado`} onClick={() => void inventory.updatePurchase(item.id, 'paid', paymentMethod[item.id] || 'efectivo')}><span/></button></div>
+              ? <button className="app-switch is-on" type="button" disabled={inventory.busy} role="switch" aria-checked="true" aria-label={`Cambiar ${name} a pendiente`} onClick={() => setConfirmPending(item.id)}><span/></button>
+              : <div className="pending-actions"><select aria-label={`Medio de pago de ${name}`} value={paymentMethod[item.id] || 'efectivo'} onChange={event => setPaymentMethod(current => ({ ...current, [item.id]: event.target.value as 'efectivo' | 'transferencia' }))}><option value="efectivo">Efectivo</option><option value="transferencia">Transferencia</option></select><button className="app-switch" type="button" disabled={inventory.busy} role="switch" aria-checked="false" aria-label={`Marcar ${name} como pagado`} onClick={() => void inventory.updatePurchase(item.id, 'paid', paymentMethod[item.id] || 'efectivo')}><span/></button></div>
             )}
           </div>
         </article>

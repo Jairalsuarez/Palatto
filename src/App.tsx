@@ -644,13 +644,13 @@ function OrderEditor({ app, order, back, done, pay }: { app: Restaurant; order?:
   const [picker, setPicker] = useState(false)
   const [showNotes, setShowNotes] = useState(Boolean(order?.notes))
   const [items, setItems] = useState<Item[]>(order?.items || [])
+  const [globalTakeaway, setGlobalTakeaway] = useState(Boolean(order?.takeaway))
   const [notes, setNotes] = useState(order?.notes || '')
   const [reason, setReason] = useState('')
 
   const itemsTotal = total(items)
   const takeawayFee = items.reduce((sum, item) => sum + (item.takeaway_fee || 0) * (item.takeaway_quantity || 0), 0)
   const quantityTotal = items.reduce((sum, item) => sum + item.quantity, 0)
-  const allTakeaway = items.length > 0 && items.every(item => (item.takeaway_quantity || 0) >= item.quantity)
   const nextNumber = order?.number ?? Math.max(0, ...app.data.orders.filter(item => dayKey(item.created_at) === dayKey(new Date())).map(item => item.number)) + 1
 
   function add(product: Product) {
@@ -658,14 +658,14 @@ function OrderEditor({ app, order, back, done, pay }: { app: Restaurant; order?:
     setItems(current => {
       const found = current.find(item => item.product_id === product.id)
       return found
-        ? current.map(item => item.product_id === product.id ? { ...item, quantity: Math.min(99, item.quantity + 1) } : item)
+        ? current.map(item => item.product_id === product.id ? { ...item, quantity: Math.min(99, item.quantity + 1), takeaway_quantity: Math.min(item.quantity + 1, (item.takeaway_quantity || 0) + (globalTakeaway ? 1 : 0)) } : item)
         : [...current, {
             product_id: product.id,
             name: product.name,
             price: product.price,
             base_price: product.price,
             takeaway_fee: product.takeaway_fee || 0,
-            takeaway_quantity: 0,
+            takeaway_quantity: globalTakeaway ? 1 : 0,
             is_drink: Boolean(product.is_drink),
             business: product.business,
             quantity: 1,
@@ -683,11 +683,12 @@ function OrderEditor({ app, order, back, done, pay }: { app: Restaurant; order?:
       : item))
   }
   function setAllTakeaway(value: boolean) {
+    setGlobalTakeaway(value)
     setItems(current => current.map(item => ({ ...item, takeaway_quantity: value ? item.quantity : 0 })))
   }
   async function submit(charge: boolean) {
     if (!items.length) { app.setError('Añade al menos un producto.'); return }
-    const saved = await app.saveOrder(order?.customer || 'Pedido', notes, items, order, reason, 0, null, allTakeaway)
+    const saved = await app.saveOrder(order?.customer || 'Pedido', notes, items, order, reason, 0, null, globalTakeaway)
     if (!saved) return
     if (charge) pay(saved)
     else done()
@@ -706,13 +707,10 @@ function OrderEditor({ app, order, back, done, pay }: { app: Restaurant; order?:
         {items.length === 0
           ? <div className="add-first-hint">Aún no has agregado productos.</div>
           : <>
-              <label className="takeaway-summary">
-                <span className="takeaway-summary-copy">
-                  <strong>Para llevar</strong>
-                  <small>{allTakeaway ? 'Todos los productos' : 'Pedido para servir'}</small>
-                </span>
-                <input type="checkbox" role="switch" aria-label="Marcar todos los productos para llevar" checked={allTakeaway} onChange={event => setAllTakeaway(event.target.checked)}/>
-              </label>
+              <div className="takeaway-summary">
+                <span>¿Para llevar?</span>
+                <button type="button" className={`app-switch ${globalTakeaway ? 'is-on' : ''}`} role="switch" aria-checked={globalTakeaway} aria-label="Para llevar todo el pedido" onClick={() => setAllTakeaway(!globalTakeaway)}><span/></button>
+              </div>
               <ul className="basket">
                 {items.map(item => <li key={item.product_id} className={item.takeaway_quantity ? 'has-takeaway' : ''}>
                   <div className="basket-info">
