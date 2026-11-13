@@ -1978,43 +1978,52 @@ dialog.native-dialog.dialog-large {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: 10px;
-  margin-bottom: 6px;
-  padding: 8px 10px;
-  border-radius: 12px;
-  background: var(--surface-2);
+  gap: 12px;
+  margin: 2px 0 8px;
+  padding: 11px 13px;
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  background: linear-gradient(120deg, var(--surface-2), var(--surface));
   color: var(--ink-soft);
-  font-size: .78rem;
-  font-weight: 700;
+  box-shadow: 0 2px 8px #00000008;
   cursor: pointer;
+  transition: border-color .18s ease, background .18s ease, box-shadow .18s ease;
 }
+.takeaway-summary:has(input:checked) { border-color: color-mix(in oklab, var(--copper) 48%, var(--line)); background: color-mix(in oklab, var(--copper-soft) 38%, var(--surface)); }
+.takeaway-summary-copy { display: grid; gap: 2px; }
+.takeaway-summary-copy strong { color: var(--ink); font-size: .8rem; font-weight: 750; }
+.takeaway-summary-copy small { color: var(--muted); font-size: .68rem; font-weight: 550; }
 .takeaway-summary input[role="switch"] {
   appearance: none;
   position: relative;
-  width: 36px;
-  height: 21px;
+  flex: 0 0 auto;
+  width: 48px;
+  height: 28px;
   margin: 0;
+  padding: 3px;
+  border: 1px solid color-mix(in oklab, var(--ink) 8%, transparent);
   border: 0;
   border-radius: 999px;
-  background: var(--line-strong, #c8c4bd);
+  background: color-mix(in oklab, var(--muted) 32%, var(--surface));
   cursor: pointer;
-  transition: background .16s ease;
+  box-shadow: inset 0 1px 2px #00000014;
+  transition: background .2s ease, box-shadow .2s ease;
 }
 .takeaway-summary input[role="switch"]::after {
   content: '';
   position: absolute;
   top: 3px;
   left: 3px;
-  width: 15px;
-  height: 15px;
+  width: 22px;
+  height: 22px;
   border-radius: 50%;
   background: white;
-  transition: transform .16s ease;
-  box-shadow: 0 1px 3px #0002;
+  transition: transform .2s cubic-bezier(.2,.8,.2,1), box-shadow .2s ease;
+  box-shadow: 0 2px 5px #0000002e;
 }
-.takeaway-summary input[role="switch"]:checked { background: var(--copper); }
-.takeaway-summary input[role="switch"]:checked::after { transform: translateX(15px); }
-.takeaway-summary input[role="switch"]:focus-visible { outline: 3px solid color-mix(in oklab, var(--copper) 45%, transparent); outline-offset: 2px; }
+.takeaway-summary input[role="switch"]:checked { background: var(--copper); box-shadow: inset 0 1px 2px #00000020, 0 0 0 3px color-mix(in oklab, var(--copper) 12%, transparent); }
+.takeaway-summary input[role="switch"]:checked::after { transform: translateX(20px); }
+.takeaway-summary input[role="switch"]:focus-visible { outline: 3px solid color-mix(in oklab, var(--copper) 45%, transparent); outline-offset: 3px; }
 .takeaway-control {
   position: relative;
   margin-left: auto;

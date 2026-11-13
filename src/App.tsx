@@ -707,7 +707,10 @@ function OrderEditor({ app, order, back, done, pay }: { app: Restaurant; order?:
           ? <div className="add-first-hint">Aún no has agregado productos.</div>
           : <>
               <label className="takeaway-summary">
-                <span>Para llevar</span>
+                <span className="takeaway-summary-copy">
+                  <strong>Para llevar</strong>
+                  <small>{allTakeaway ? 'Todos los productos' : 'Pedido para servir'}</small>
+                </span>
                 <input type="checkbox" role="switch" aria-label="Marcar todos los productos para llevar" checked={allTakeaway} onChange={event => setAllTakeaway(event.target.checked)}/>
               </label>
               <ul className="basket">
