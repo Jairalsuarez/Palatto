@@ -2024,7 +2024,9 @@ dialog.native-dialog.dialog-large {
 .editor-foot-actions .btn { width: 100%; min-width: 0; padding-inline: 10px; font-size: .82rem; }
 
 .daily-summary-stat.orders { border-color: color-mix(in oklab, var(--blue) 30%, var(--line)); }
-.daily-summary-stat.drinks { border-color: color-mix(in oklab, var(--copper) 35%, var(--line)); background: color-mix(in oklab, var(--copper-soft) 28%, var(--surface)); }
+.daily-summary-stat.drinks { grid-column: 1 / -1; border-color: color-mix(in oklab, var(--copper) 35%, var(--line)); background: color-mix(in oklab, var(--copper-soft) 28%, var(--surface)); }
+.daily-summary-stat.drinks .btn { justify-self: start; margin-top: 7px; }
+.daily-summary-stat.drinks .btn:disabled { opacity: .6; cursor: not-allowed; }
 
 .movement-receipt {
   flex: 0 0 auto;

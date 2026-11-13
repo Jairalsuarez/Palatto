@@ -928,6 +928,11 @@ function DailySummary({ app, onCash }: { app: Restaurant; onCash: (business: Bus
   const todayKey = reportDate(now.toISOString())
   const movements = app.data.movements.filter(movement => reportDate(movement.created_at) === todayKey).sort((a, b) => b.created_at.localeCompare(a.created_at))
   const sum = (kind: MovementKind) => movements.filter(movement => movement.kind === kind).reduce((value, movement) => value + movement.amount, 0)
+  const drinksCashSales = movements.filter(movement => movement.business === 'carreta' && movement.method === 'efectivo' && (movement.kind === 'cobro' || movement.kind === 'correccion')).reduce((value, movement) => value + movement.amount, 0)
+  const drinksWithdrawalReason = `Retiro diario de aguas y colas · ${todayKey}`
+  const drinksCashWithdrawn = movements.filter(movement => movement.business === 'carreta' && movement.method === 'efectivo' && movement.kind === 'retiro' && movement.reason === drinksWithdrawalReason).reduce((value, movement) => value + Math.abs(movement.amount), 0)
+  const drinksCashPending = Math.max(0, drinksCashSales - drinksCashWithdrawn)
+  const drinksCashBalance = app.data.movements.filter(movement => movement.business === 'carreta' && movement.method === 'efectivo').reduce((value, movement) => value + movement.amount, 0)
   const expenses = Math.max(0, -sum('gasto'))
   const cashBalance = app.data.movements.reduce((value, movement) => value + movement.amount, 0)
   const balanceByMethod = (method: Method) => app.data.movements.filter(movement => movement.method === method).reduce((value, movement) => value + movement.amount, 0)
@@ -937,7 +942,13 @@ function DailySummary({ app, onCash }: { app: Restaurant; onCash: (business: Bus
     <div className="daily-summary-grid">
       <article className="daily-summary-stat sales"><small>Vendido hoy</small><strong>{money(summary.revenue)}</strong><span>Confirmado al cobrar</span></article>
       <article className="daily-summary-stat orders"><small>Pedidos cobrados</small><strong>{summary.orders}</strong><span>En el día</span></article>
-      <article className="daily-summary-stat drinks"><small>Aguas y colas</small><strong>{money(summary.drinksRevenue)}</strong><span>Dinero en bebidas</span></article>
+      <article className="daily-summary-stat drinks"><small>Aguas y colas · efectivo</small><strong>{money(drinksCashPending)}</strong><span>Efectivo cobrado hoy pendiente de retirar. Las transferencias permanecen en su saldo.</span>
+        {canCash(app.role, 'carreta')
+          ? <button className="btn btn-ghost btn-sm" disabled={!drinksCashPending || app.busy || drinksCashBalance < drinksCashPending} onClick={() => void app.cash('carreta', -drinksCashPending, 'efectivo', drinksWithdrawalReason, 'retiro')}>
+              <ArrowDownLeft size={16}/>{drinksCashBalance < drinksCashPending ? 'Efectivo insuficiente en la caja' : `Retirar de caja ${money(drinksCashPending)}`}
+            </button>
+          : <span>Solo administración puede retirar de caja.</span>}
+      </article>
       <article className="daily-summary-stat cash"><small>Saldo en caja</small><strong>{money(cashBalance)}</strong><span>Efectivo y transferencias</span></article>
     </div>
     <section className="summary-payment-breakdown" aria-label="Desglose de efectivo y transferencias">
