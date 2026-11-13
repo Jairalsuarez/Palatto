@@ -8,7 +8,7 @@ import {
 import { Modal } from './Modal'
 import { useRestaurant } from './lib/useRestaurant'
 import type { Restaurant } from './lib/useRestaurant'
-import { businessLabel, canCash, canEdit, canMenu, canWrite, cents, labels, money, orderSplit, orderTotal, priceForService, registerLabel, roles, splitTotal, total } from './lib/domain'
+import { itemIsDrink, itemTotal, canCash, canEdit, canMenu, canWrite, cents, labels, money, orderService, orderTotal, roles, total } from './lib/domain'
 import type { Business, Item, Method, MovementKind, Order, OrderPayment, Product, Profile, Role } from './lib/domain'
 import { analyze, dayKey, paymentTimes } from './lib/analytics'
 import { OrderList } from './OrderList'
@@ -19,7 +19,7 @@ import './App.css'
 type Page = 'pedidos' | 'nuevo' | 'cajas' | 'menu' | 'equipo' | 'reportes' | 'insumos' | 'cuenta' | 'resumen'
 type Route = { page: Page; cashBusiness: Business | null }
 
-const number = (n: number) => String(n).padStart(4, '0')
+const number = (n: number) => String(n)
 const movementKindLabel = (kind: MovementKind) => ({ ingreso: 'Ingreso', gasto: 'Gasto', retiro: 'Retiro', cobro: 'Cobro', correccion: 'Corrección', transferencia: 'Transferencia' }[kind])
 const dateTime = (d: string) => new Date(d).toLocaleString('es-EC', { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })
 const today = () => new Date().toLocaleDateString('es-EC', { weekday: 'long', day: 'numeric', month: 'long' })
@@ -64,6 +64,7 @@ export default function App() {
   const [editing, setEditing] = useState<Order | undefined>()
   const [cashBusiness, setCashBusiness] = useState<Business | null>(null)
   const [detail, setDetail] = useState<string | null>(null)
+  const [payRequest, setPayRequest] = useState<string | null>(null)
   const [history, setHistory] = useState<Route[]>([])
 
   useEffect(() => {
@@ -100,6 +101,7 @@ export default function App() {
     setPage(next)
     setCashBusiness(cash)
     setEditing(undefined)
+    setPayRequest(null)
     app.setError('')
   }
   function navigate(next: Page) {
@@ -111,6 +113,7 @@ export default function App() {
     setPage(previous?.page ?? 'pedidos')
     setCashBusiness(previous?.page === 'cajas' ? (previous.cashBusiness ?? 'palatto') : null)
     setEditing(undefined)
+    setPayRequest(null)
     app.setError('')
   }
   function edit(order: Order) {
@@ -123,9 +126,19 @@ export default function App() {
   function finishOrder() {
     setEditing(undefined)
     setDetail(null)
+    setPayRequest(null)
     setPage('pedidos')
     setCashBusiness(null)
     setHistory([])
+    app.setError('')
+  }
+  function paySaved(id: string) {
+    setEditing(undefined)
+    setDetail(null)
+    setPage('pedidos')
+    setCashBusiness(null)
+    setHistory([])
+    setPayRequest(id)
     app.setError('')
   }
 
@@ -149,15 +162,13 @@ export default function App() {
         <button className="icon-button icon-sm" onClick={() => app.setError('')} aria-label="Cerrar aviso"><X size={16}/></button>
       </div>}
 
-      {page === 'pedidos' && <Home app={app} detail={detail} setDetail={setDetail} onNew={() => navigate('nuevo')} onReport={() => navigate('reportes')} onSummary={() => navigate('resumen')} onCash={business => go('cajas', business)} onEdit={edit}/>}
+      {page === 'pedidos' && <Home app={app} detail={detail} setDetail={setDetail} payRequest={payRequest} payHandled={() => setPayRequest(null)} onNew={() => navigate('nuevo')} onReport={() => navigate('reportes')} onSummary={() => navigate('resumen')} onCash={business => go('cajas', business)} onEdit={edit}/>}
       {page === 'resumen' && <DailySummary app={app} onCash={business => go('cajas', business)}/>}
       {page === 'reportes' && <Reports app={app}/>}
       {page === 'insumos' && <Inventory app={app}/>}
-      {page === 'nuevo' && canWrite(app.role) && <OrderEditor key={editing?.id || 'new'} app={app} order={editing} back={back} done={finishOrder}/>}
+      {page === 'nuevo' && canWrite(app.role) && <OrderEditor key={editing?.id || 'new'} app={app} order={editing} back={back} done={finishOrder} pay={paySaved}/>}
       {page === 'cajas' && cashBusiness
-        ? <Cash key={cashBusiness} app={app} business={cashBusiness}
-            back={back}
-            openDrinks={() => go('cajas', 'carreta')}/>
+        ? <Cash app={app} back={back}/>
         : null}
       {page === 'menu' && <Menu app={app}/>}
       {page === 'equipo' && app.role === 'superadmin' && <Team app={app}/>}
@@ -181,17 +192,19 @@ export default function App() {
       </button>)}
     </nav>}
 
-    {app.notice && <div className="toast" role="status" aria-live="polite">
-      <span className="toast-icon"><CheckCheck size={19}/></span>
-      <span className="toast-copy"><strong>Listo</strong><span>{app.notice}</span></span>
-      <button className="toast-close" type="button" aria-label="Cerrar notificación" onClick={() => app.setNotice('')}><X size={17}/></button>
-    </div>}
+    <div className="toast-stack" role="status" aria-live="polite">
+      {app.notices.map(item => <div className="toast" key={item.id}>
+        <span className="toast-icon"><CheckCheck size={19}/></span>
+        <span className="toast-copy"><strong>Listo</strong><span>{item.message}</span></span>
+        <button className="toast-close" type="button" aria-label="Cerrar notificación" onClick={() => app.dismissNotice(item.id)}><X size={17}/></button>
+      </div>)}
+    </div>
   </div>
 }
 
 /* ---------------------------------------------------------------- Inicio */
 
-function Home({ app, detail, setDetail, onNew, onReport, onSummary, onCash, onEdit }: { app: Restaurant; detail: string | null; setDetail: (id: string | null) => void; onNew: () => void; onReport: () => void; onSummary: () => void; onCash: (business: Business) => void; onEdit: (order: Order) => void }) {
+function Home({ app, detail, setDetail, payRequest, payHandled, onNew, onReport, onSummary, onCash, onEdit }: { app: Restaurant; detail: string | null; setDetail: (id: string | null) => void; payRequest: string | null; payHandled: () => void; onNew: () => void; onReport: () => void; onSummary: () => void; onCash: (business: Business) => void; onEdit: (order: Order) => void }) {
   const [filter, setFilter] = useState<'activos' | 'completados' | 'todos'>('activos')
   const [search, setSearch] = useState('')
   const [payment, setPayment] = useState<{ order: Order; split: boolean } | null>(null)
@@ -200,9 +213,20 @@ function Home({ app, detail, setDetail, onNew, onReport, onSummary, onCash, onEd
   const orders = app.data.orders.filter(order => {
     const matchesFilter = filter === 'todos' || (filter === 'activos' ? !order.paid : order.paid)
     return matchesFilter && `${order.number} ${order.customer}`.toLowerCase().includes(search.toLowerCase())
-  })
+  }).sort((a, b) => filter === 'completados'
+    ? (b.paid_at || b.created_at).localeCompare(a.paid_at || a.created_at)
+    : a.created_at.localeCompare(b.created_at))
   const paymentOrder = app.data.orders.find(order => order.id === payment?.order.id)
   const detailOrder = app.data.orders.find(order => order.id === detail)
+
+  useEffect(() => {
+    if (!payRequest) return
+    const order = app.data.orders.find(item => item.id === payRequest)
+    if (order) {
+      setPayment({ order, split: false })
+      payHandled()
+    }
+  }, [payRequest, app.data.orders, payHandled])
 
   return <>
     <div className="page-head">
@@ -211,7 +235,6 @@ function Home({ app, detail, setDetail, onNew, onReport, onSummary, onCash, onEd
     </div>
 
     <SalesHero app={app} onReport={onReport} onSummary={onSummary} onCash={onCash}/>
-    <CashMini app={app} open={onCash}/>
 
     <div className="toolbar">
       <div className="segmented" role="group" aria-label="Filtrar pedidos">
@@ -250,35 +273,37 @@ function Home({ app, detail, setDetail, onNew, onReport, onSummary, onCash, onEd
 
 function SalesHero({ app, onReport, onSummary, onCash }: { app: Restaurant; onReport: () => void; onSummary: () => void; onCash: (business: Business) => void }) {
   const summary = analyze(app.data.orders, app.data.products, 'hoy', new Date(), paymentTimes(app.data.movements))
-  const today = dayKey(new Date())
-  const mainCash = app.data.movements.filter(movement => movement.business === 'palatto')
-  const balance = mainCash.reduce((sum, movement) => sum + movement.amount, 0)
-  const expenses = app.data.movements
-    .filter(movement => movement.kind === 'gasto' && dayKey(movement.created_at) === today)
+  const todayKey = dayKey(new Date())
+  const todayMovements = app.data.movements.filter(movement => dayKey(movement.created_at) === todayKey)
+  const balance = app.data.movements.reduce((sum, movement) => sum + movement.amount, 0)
+  const expenses = todayMovements
+    .filter(movement => movement.kind === 'gasto')
     .reduce((sum, movement) => sum + Math.abs(movement.amount), 0)
   const mood = expenses > 0 ? summary.revenue / expenses : summary.revenue > 0 ? 1 : 0
+  const cash = summary.byMethod.efectivo
+  const transfer = summary.byMethod.transferencia
 
-  return <section className="sales-hero" aria-label="Caja principal y resumen del día">
+  return <section className="sales-hero" aria-label="Caja y ventas del día">
     <div className="sales-hero-top">
       <span className="eyebrow">Caja</span>
       <div className="sales-hero-links"><button className="hero-link" onClick={onSummary}>Resumen del día<ArrowRight size={15}/></button><button className="hero-link" onClick={onReport}>Reportes<ArrowUpRight size={15}/></button></div>
     </div>
-    <button className="hero-balance" onClick={() => onCash('palatto')} aria-label="Abrir la caja principal">
+    <button className="hero-balance" onClick={() => onCash('palatto')} aria-label="Abrir la caja">
       <strong className="hero-amount">{money(balance)}</strong>
-      <span className="hero-caption">Saldo disponible · Toca para abrir la caja<ArrowUpRight size={13}/></span>
+      <span className="hero-caption">Total en caja · Vendido hoy {money(summary.revenue)} <ArrowUpRight size={13}/></span>
+      <span className="hero-mood"><MoodFace score={mood}/></span>
     </button>
-    <div className="hero-day">
-      <div className="hero-sales">
-        <MoodFace score={mood}/>
-        <div>
-          <small>Ventas de hoy</small>
-          <strong>{money(summary.revenue)}</strong>
-        </div>
-      </div>
-      <div className="hero-expenses">
-        <small>Gastos de hoy</small>
-        <strong>{money(expenses)}</strong>
-      </div>
+    <div className="hero-day hero-day-methods">
+      <button className="hero-method" onClick={() => onCash('palatto')} aria-label="Ver caja, cobros en efectivo">
+        <span className="hero-method-icon"><Banknote size={18}/></span>
+        <span className="hero-method-copy"><small>Efectivo hoy</small><strong>{money(cash.revenue)}</strong><em>{cash.orders} {cash.orders === 1 ? 'pedido' : 'pedidos'}</em></span>
+        <ArrowUpRight size={15}/>
+      </button>
+      <button className="hero-method" onClick={() => onCash('palatto')} aria-label="Ver caja, cobros por transferencia">
+        <span className="hero-method-icon"><CreditCard size={18}/></span>
+        <span className="hero-method-copy"><small>Transferencia hoy</small><strong>{money(transfer.revenue)}</strong><em>{transfer.orders} {transfer.orders === 1 ? 'pedido' : 'pedidos'}</em></span>
+        <ArrowUpRight size={15}/>
+      </button>
     </div>
   </section>
 }
@@ -296,22 +321,10 @@ function MoodFace({ score }: { score: number }) {
   </svg>
 }
 
-function CashMini({ app, open }: { app: Restaurant; open: (business: Business) => void }) {
-  const business: Business = 'carreta'
-  const movements = app.data.movements.filter(movement => movement.business === business)
-  const balance = movements.reduce((sum, movement) => sum + movement.amount, 0)
-  return <button className="drinks-mini" onClick={() => open(business)}>
-    <span><Coffee size={15}/>Aguas y colas</span>
-    <span className="drinks-mini-amount">{money(balance)}</span>
-    <ArrowRight size={15}/>
-  </button>
-}
-
 function OrderDetail({ app, order, close, pay, split, edit, showReceipt }: { app: Restaurant; order: Order; close: () => void; pay: () => void; split: () => void; edit: () => void; showReceipt: (path: string) => void }) {
   const [confirming, setConfirming] = useState(false)
   const [reason, setReason] = useState('Pedido cancelado')
   const owed = orderTotal(order)
-  const allocation = orderSplit(order)
   const payments = app.data.order_payments.filter(payment => payment.order_id === order.id).sort((a, b) => a.created_at.localeCompare(b.created_at))
   const paid = payments.reduce((sum, payment) => sum + payment.amount, 0)
   const remaining = Math.max(0, owed - paid)
@@ -335,15 +348,21 @@ function OrderDetail({ app, order, close, pay, split, edit, showReceipt }: { app
           <div className="detail-head">
             <div>
               <strong>{order.customer}</strong>
-              <small>{dateTime(order.created_at)} · {order.takeaway ? 'Para llevar' : 'Para servir'}</small>
+              <small>{dateTime(order.created_at)} · {orderService(order)}</small>
             </div>
             <span className={`chip ${order.paid ? 'chip-done' : 'chip-live'}`}><i aria-hidden="true"/>{order.paid ? 'Cobrado' : 'En proceso'}</span>
           </div>
 
           <ul className="detail-items">
             {order.items.map(item => <li key={item.product_id}>
-              <span><b>{item.quantity}</b> {item.name}<small>{businessLabel(item.business)}</small></span>
-              <span>{money(item.price * item.quantity)}</span>
+              <span>
+                <b>{item.quantity}</b> {item.name}
+                <small>
+                  {itemIsDrink(item) ? 'Agua o cola' : 'Comida'}
+                  {!!item.takeaway_quantity && ` · ${item.takeaway_quantity} para llevar`}
+                </small>
+              </span>
+              <span>{money(itemTotal(item))}</span>
             </li>)}
           </ul>
 
@@ -353,13 +372,8 @@ function OrderDetail({ app, order, close, pay, split, edit, showReceipt }: { app
 
           {!!order.adjustment && <p className="detail-adjust">
             <Pencil size={14}/>
-            <span>Total ajustado {order.adjustment > 0 ? '+' : ''}{money(order.adjustment)}{order.adjustment_reason ? ` · ${order.adjustment_reason}` : ''}</span>
+            <span>Total ajustado {order.adjustment > 0 ? '+' : ''}{money(order.adjustment)}</span>
           </p>}
-
-          <div className="allocation">
-            <span>Palatto <b>{money(allocation.palatto)}</b></span>
-            <span>Aguas y colas <b>{money(allocation.carreta)}</b></span>
-          </div>
 
           {payments.length > 0 && <section className="split-summary">
             <div className="section-top"><h3>Cuenta dividida</h3><span className="pill">{payments.length} {payments.length === 1 ? 'pago' : 'pagos'}</span></div>
@@ -417,56 +431,40 @@ function Payment({ app, order, initialSplit, close, view }: { app: Restaurant; o
 }
 
 function FullPayment({ app, order, close, view }: { app: Restaurant; order: Order; close: () => void; view: () => void }) {
+  const base = total(order.items)
+  const current = orderTotal(order)
   const [method, setMethod] = useState<Method>('efectivo')
   const [received, setReceived] = useState('')
   const [receipt, setReceipt] = useState<string | null>(null)
-  const [adjusting, setAdjusting] = useState(false)
-  const [custom, setCustom] = useState('')
-  const [savedCustom, setSavedCustom] = useState('')
-  const [reason, setReason] = useState('')
+  const [totalInput, setTotalInput] = useState(() => (current / 100).toFixed(2))
   const [formError, setFormError] = useState('')
-  const base = total(order.items)
-  const activeCustom = savedCustom
-  const parsed = activeCustom.trim() === '' ? base : cents(activeCustom)
+  const parsed = totalInput.trim() === '' ? current : cents(totalInput)
   const amount = Number.isFinite(parsed) ? parsed : 0
   const changed = amount !== base
-  const allocation = splitTotal(order.items, amount)
   const given = cents(received)
   const change = Math.max(0, given - amount)
-  const missingReason = changed && reason.trim().length < 3
   const quick = [...new Set([amount, 500, 1000, 2000, 5000])].filter(value => value >= amount && value > 0).slice(0, 4)
 
   return <form className="form-stack" onSubmit={async event => {
     event.preventDefault()
     setFormError('')
     if (!Number.isFinite(amount) || amount <= 0) { setFormError('El total debe ser un importe mayor a cero.'); return }
-    if (missingReason) { setFormError('Explica el motivo del ajuste al total.'); return }
-    if (await app.pay(order, method, given, receipt, amount, reason)) close()
+    if (await app.pay(order, method, given, receipt, amount)) close()
   }}>
     <div className="pay-total">
       <span>Total a cobrar</span>
-      <div className="pay-total-value"><strong>{money(amount)}</strong><button type="button" className="adjust-toggle" aria-expanded={adjusting} onClick={() => { setAdjusting(value => !value); setFormError('') }}>
-        <Pencil size={16}/>{adjusting ? 'Cerrar edición' : 'Editar total'}
-      </button></div>
-      <small>{order.takeaway ? 'Para llevar' : 'Para servir'} · {order.items.reduce((count, item) => count + item.quantity, 0)} artículos</small>
+      <strong>{money(amount)}</strong>
+      <small>{orderService(order)} · {order.items.reduce((count, item) => count + item.quantity, 0)} artículos</small>
       {changed && <small className="pay-adjust-note">Original {money(base)} · Ajuste {amount > base ? '+' : ''}{money(amount - base)}</small>}
     </div>
 
-    {adjusting && <div className="adjust-box">
+    <div className="adjust-box">
       <label>Total final ($)
-        <input type="number" inputMode="decimal" min="0.01" max="1000000" step="0.01" value={custom} onChange={event => { setCustom(event.target.value); setFormError('') }} placeholder={(base / 100).toFixed(2)}/>
+        <input type="number" inputMode="decimal" min="0.01" max="1000000" step="0.01" value={totalInput} onChange={event => { setTotalInput(event.target.value); setFormError('') }}/>
       </label>
-      <label>Motivo del ajuste
-        <textarea rows={2} maxLength={450} value={reason} onChange={event => { setReason(event.target.value); setFormError('') }} placeholder="Ej. Descuento acordado, producto faltante…"/>
-      </label>
-      <small className={`adjust-hint ${missingReason ? 'bad' : ''}`}>
-        {changed ? (missingReason ? 'Escribe el motivo para poder cobrar el total ajustado.' : 'El motivo quedará guardado en el historial.') : 'Deja el total original si no necesitas ajustarlo.'}
-      </small>
-      <div className="adjust-actions">
-        <button type="button" className="btn btn-primary btn-sm" disabled={!custom.trim() || !Number.isFinite(cents(custom)) || cents(custom) <= 0 || reason.trim().length < 3} onClick={() => { setSavedCustom(custom); setFormError(''); setAdjusting(false) }}>Guardar edición</button>
-        {(custom || savedCustom || reason) && <button type="button" className="link-button" onClick={() => { setCustom(''); setSavedCustom(''); setReason(''); setFormError('') }}>Usar total original ({money(base)})</button>}
-      </div>
-    </div>}
+      <small className="adjust-hint">Puedes cambiarlo si diste un descuento o hiciste un ajuste.</small>
+      {changed && <button type="button" className="link-button" onClick={() => { setTotalInput((base / 100).toFixed(2)); setFormError('') }}>Usar total original ({money(base)})</button>}
+    </div>
 
     <div className="segmented segmented-lg" role="group" aria-label="Forma de pago">
       {(['efectivo', 'transferencia'] as Method[]).map(option => <button type="button" key={option} className={method === option ? 'active' : ''} aria-pressed={method === option} onClick={() => setMethod(option)}>
@@ -492,13 +490,8 @@ function FullPayment({ app, order, close, view }: { app: Restaurant; order: Orde
 
     <button type="button" className="link-button" onClick={view}>Ver detalle o editar<ArrowRight size={16}/></button>
 
-    <div className="allocation">
-      <span>Palatto <b>{money(allocation.palatto)}</b></span>
-      <span>Aguas y colas <b>{money(allocation.carreta)}</b></span>
-    </div>
-
     {(formError || app.error) && <p className="alert alert-error" role="alert">{formError || app.error}</p>}
-    <button className="btn btn-money btn-lg btn-block" disabled={app.busy || order.paid || amount <= 0 || missingReason || (method === 'transferencia' ? !receipt : given < amount)}>
+    <button className="btn btn-money btn-lg btn-block" disabled={app.busy || order.paid || amount <= 0 || (method === 'transferencia' ? !receipt : given < amount)}>
       {order.paid ? 'Pedido cobrado' : app.busy ? 'Guardando…' : 'Confirmar pago'}<Check size={19}/>
     </button>
     <p className="tiny center">Confirma cuando tengas el dinero en mano.</p>
@@ -521,13 +514,20 @@ function SplitPayment({ app, order, payments, close, view }: { app: Restaurant; 
     .map(item => ({ ...item, available: item.quantity - (assigned.get(item.product_id) || 0) }))
     .filter(item => item.available > 0)
   const selected = lines
-    .map(item => ({ product_id: item.product_id, name: item.name, price: item.price, business: item.business, quantity: picked[item.product_id] || 0 }))
+    .map(item => {
+      const quantity = picked[item.product_id] || 0
+      return {
+        ...item,
+        quantity,
+        takeaway_quantity: item.quantity ? Math.round((item.takeaway_quantity || 0) * quantity / item.quantity) : 0,
+      }
+    })
     .filter(item => item.quantity > 0)
-  const amount = selected.reduce((sum, item) => sum + item.price * item.quantity, 0)
+  const amount = selected.reduce((sum, item) => sum + Math.round(itemTotal(item) / item.quantity) * item.quantity, 0)
   const given = cents(received)
   const change = Math.max(0, given - amount)
   const paid = payments.reduce((sum, payment) => sum + payment.amount, 0)
-  const owed = total(order.items)
+  const owed = orderTotal(order)
   const remaining = Math.max(0, owed - paid)
   const ready = label.trim().length > 0 && selected.length > 0 && (method === 'transferencia' ? !!receipt : given >= amount)
 
@@ -610,13 +610,13 @@ function SplitPayment({ app, order, payments, close, view }: { app: Restaurant; 
   </form>
 }
 
-function ReceiptUpload({ app, value, onChange }: { app: Restaurant; value: string | null; onChange: (value: string | null) => void }) {
+function ReceiptUpload({ app, value, onChange, title = 'Subir comprobante', hint = 'Foto o archivo JPG, PNG o WebP · máximo 5 MB' }: { app: Restaurant; value: string | null; onChange: (value: string | null) => void; title?: string; hint?: string }) {
   const [uploading, setUploading] = useState(false)
   const [error, setError] = useState('')
   return <div className="upload">
     <label className={value ? 'upload-box done' : 'upload-box'}>
-      {value ? <><CheckCheck size={22}/><strong>Comprobante listo</strong><span>Toca para cambiarlo</span></> : <><CreditCard size={22}/><strong>Subir comprobante</strong><span>JPG, PNG o WebP · máximo 5 MB</span></>}
-      <input aria-label="Foto del comprobante" type="file" accept="image/jpeg,image/png,image/webp" capture="environment" disabled={uploading}
+      {value ? <><CheckCheck size={22}/><strong>{title.replace('Subir ', '')} cargado</strong><span>Toca para cambiarlo</span></> : <><CreditCard size={22}/><strong>{title}</strong><span>{hint}</span></>}
+      <input aria-label={title} type="file" accept="image/jpeg,image/png,image/webp" disabled={uploading}
         onChange={async event => {
           const file = event.target.files?.[0]
           if (!file) return
@@ -633,21 +633,19 @@ function ReceiptUpload({ app, value, onChange }: { app: Restaurant; value: strin
 
 /* ------------------------------------------------------------ Nuevo pedido */
 
-function OrderEditor({ app, order, back, done }: { app: Restaurant; order?: Order; back: () => void; done: () => void }) {
+function OrderEditor({ app, order, back, done, pay }: { app: Restaurant; order?: Order; back: () => void; done: () => void; pay: (id: string) => void }) {
   const [picker, setPicker] = useState(false)
-  const [service, setService] = useState<'servir' | 'llevar' | null>(order ? (order.takeaway ? 'llevar' : 'servir') : null)
   const [showNotes, setShowNotes] = useState(Boolean(order?.notes))
   const [items, setItems] = useState<Item[]>(order?.items || [])
   const [notes, setNotes] = useState(order?.notes || '')
   const [reason, setReason] = useState('')
-  const [received, setReceived] = useState('')
-  const [receipt, setReceipt] = useState<string | null>(null)
 
-  const priced = priceForService(items, service === 'llevar')
-  const itemsTotal = total(priced)
-  const difference = order?.paid ? itemsTotal - total(order.items) : 0
-  const displayedTotal = Math.max(0, itemsTotal + (order?.adjustment || 0))
-  const takeawayFee = priced.reduce((sum, item) => sum + (item.takeaway_fee || 0) * item.quantity, 0)
+  const itemsTotal = total(items)
+  const takeawayFee = items.reduce((sum, item) => sum + (item.takeaway_fee || 0) * (item.takeaway_quantity || 0), 0)
+  const quantityTotal = items.reduce((sum, item) => sum + item.quantity, 0)
+  const takeawayTotal = items.reduce((sum, item) => sum + (item.takeaway_quantity || 0), 0)
+  const allTakeaway = items.length > 0 && items.every(item => (item.takeaway_quantity || 0) >= item.quantity)
+  const nextNumber = order?.number ?? Math.max(0, ...app.data.orders.filter(item => dayKey(item.created_at) === dayKey(new Date())).map(item => item.number)) + 1
 
   function add(product: Product) {
     setPicker(false)
@@ -655,58 +653,88 @@ function OrderEditor({ app, order, back, done }: { app: Restaurant; order?: Orde
       const found = current.find(item => item.product_id === product.id)
       return found
         ? current.map(item => item.product_id === product.id ? { ...item, quantity: Math.min(99, item.quantity + 1) } : item)
-        : [...current, { product_id: product.id, name: product.name, price: product.price, base_price: product.price, takeaway_fee: product.takeaway_fee || 0, business: product.business, quantity: 1 }]
+        : [...current, {
+            product_id: product.id,
+            name: product.name,
+            price: product.price,
+            base_price: product.price,
+            takeaway_fee: product.takeaway_fee || 0,
+            takeaway_quantity: 0,
+            is_drink: Boolean(product.is_drink),
+            business: product.business,
+            quantity: 1,
+          }]
     })
   }
   function quantity(id: string, delta: number) {
-    setItems(current => current.map(item => item.product_id === id ? { ...item, quantity: Math.min(99, item.quantity + delta) } : item).filter(item => item.quantity > 0))
+    setItems(current => current.map(item => item.product_id === id
+      ? { ...item, quantity: Math.min(99, item.quantity + delta), takeaway_quantity: Math.min(item.takeaway_quantity || 0, Math.max(0, item.quantity + delta)) }
+      : item).filter(item => item.quantity > 0))
   }
-  async function submit(event: FormEvent) {
-    event.preventDefault()
-    if (!service) { app.setError('Elige para servir o para llevar.'); return }
-    if (await app.saveOrder(order?.customer || 'Pedido', notes, priced, order, reason, cents(received), receipt, service === 'llevar')) done()
+  function takeaway(id: string, delta: number) {
+    setItems(current => current.map(item => item.product_id === id
+      ? { ...item, takeaway_quantity: Math.max(0, Math.min(item.quantity, (item.takeaway_quantity || 0) + delta)) }
+      : item))
+  }
+  function setAllTakeaway(value: boolean) {
+    setItems(current => current.map(item => ({ ...item, takeaway_quantity: item.takeaway_fee ? (value ? item.quantity : 0) : 0 })))
+  }
+  async function submit(charge: boolean) {
+    if (!items.length) { app.setError('Añade al menos un producto.'); return }
+    const saved = await app.saveOrder(order?.customer || 'Pedido', notes, items, order, reason, 0, null, allTakeaway)
+    if (!saved) return
+    if (charge) pay(saved)
+    else done()
   }
 
   return <div className="editor">
     <header className="editor-bar">
       <button className="icon-button" onClick={back} aria-label="Volver"><ChevronLeft size={22}/></button>
-      <div><p className="eyebrow">{order ? 'Corregir' : 'Nuevo'}</p><h1>{order ? `Pedido #${number(order.number)}` : `Pedido #${number(Math.max(0, ...app.data.orders.map(o => o.number)) + 1)}`}</h1></div>
+      <div><p className="eyebrow">{order ? 'Corregir' : 'Nuevo'}</p><h1>{order ? `Pedido #${number(order.number)}` : `Pedido #${number(nextNumber)}`}</h1></div>
       <button className="btn btn-ghost btn-sm" onClick={back}>Cancelar</button>
     </header>
 
-    <form className="editor-form" onSubmit={submit}>
+    <form className="editor-form" onSubmit={event => { event.preventDefault(); void submit(false) }}>
       <section className="editor-section">
-        <p className="field-label">¿Cómo se entrega?</p>
-        <div className="segmented segmented-lg" role="group" aria-label="Tipo de servicio">
-          {(['servir', 'llevar'] as const).map(value => <button type="button" key={value} className={service === value ? 'active' : ''} aria-pressed={service === value} onClick={() => setService(value)}>
-            {value === 'servir' ? 'Para servir' : 'Para llevar'}
-          </button>)}
-        </div>
-      </section>
-
-      <section className="editor-section">
-        <div className="section-top"><p className="field-label">Productos</p>{items.length > 0 && <span className="muted small">{items.reduce((sum, item) => sum + item.quantity, 0)} artículos</span>}</div>
+        <div className="section-top"><p className="field-label">Productos</p>{items.length > 0 && <span className="muted small">{quantityTotal} artículos</span>}</div>
         {items.length === 0
           ? <div className="add-first-hint">Aún no has agregado productos.</div>
-          : <ul className="basket">
-              {items.map(item => <li key={item.product_id}>
-                <div className="basket-info">
-                  <strong>{item.name}</strong>
-                  <small>{businessLabel(item.business)}{service === 'llevar' && !!item.takeaway_fee ? ` · +${money(item.takeaway_fee)} para llevar` : ''}</small>
+          : <>
+              <div className="takeaway-summary">
+                <span>{takeawayTotal ? `${takeawayTotal} de ${quantityTotal} para llevar` : 'Todo para servir'}</span>
+                <div>
+                  <button type="button" onClick={() => setAllTakeaway(false)} disabled={!takeawayTotal}>Todo para servir</button>
+                  <button type="button" onClick={() => setAllTakeaway(true)}>Todo para llevar</button>
                 </div>
-                <div className="stepper">
-                  <button type="button" aria-label={`Quitar uno de ${item.name}`} onClick={() => quantity(item.product_id, -1)}><Minus size={16}/></button>
-                  <span>{item.quantity}</span>
-                  <button type="button" aria-label={`Añadir uno de ${item.name}`} onClick={() => quantity(item.product_id, 1)}
-                    disabled={item.quantity >= 99 || !app.data.products.find(product => product.id === item.product_id)?.active}><Plus size={16}/></button>
-                </div>
-                <b className="basket-price">{money(item.price * item.quantity)}</b>
-              </li>)}
-            </ul>}
+              </div>
+              <ul className="basket">
+                {items.map(item => <li key={item.product_id} className={item.takeaway_quantity ? 'has-takeaway' : ''}>
+                  <div className="basket-info">
+                    <strong>{item.name}</strong>
+                    <small>{itemIsDrink(item) ? 'Agua o cola' : 'Comida'}{item.takeaway_fee ? ` · +${money(item.takeaway_fee)} para llevar` : ''}</small>
+                  </div>
+                  <div className="stepper">
+                    <button type="button" aria-label={`Quitar uno de ${item.name}`} onClick={() => quantity(item.product_id, -1)}><Minus size={16}/></button>
+                    <span>{item.quantity}</span>
+                    <button type="button" aria-label={`Añadir uno de ${item.name}`} onClick={() => quantity(item.product_id, 1)}
+                      disabled={item.quantity >= 99 || !app.data.products.find(product => product.id === item.product_id)?.active}><Plus size={16}/></button>
+                  </div>
+                  <b className="basket-price">{money(itemTotal(item))}</b>
+                  {!!item.takeaway_fee && <div className="takeaway-control">
+                    <span>Para llevar</span>
+                    <div className="stepper stepper-sm">
+                      <button type="button" aria-label={`Quitar uno para llevar de ${item.name}`} onClick={() => takeaway(item.product_id, -1)} disabled={!item.takeaway_quantity}><Minus size={14}/></button>
+                      <span>{item.takeaway_quantity || 0}</span>
+                      <button type="button" aria-label={`Añadir uno para llevar de ${item.name}`} onClick={() => takeaway(item.product_id, 1)} disabled={(item.takeaway_quantity || 0) >= item.quantity}><Plus size={14}/></button>
+                    </div>
+                  </div>}
+                </li>)}
+              </ul>
+            </>}
         <button type="button" className="btn btn-ghost btn-block" onClick={() => setPicker(true)}><Plus size={18}/>Agregar producto</button>
       </section>
 
-      {service === 'llevar' && <p className="note-line">Incluye {money(takeawayFee)} de adicional para llevar.</p>}
+      {takeawayFee > 0 && <p className="note-line">Incluye {money(takeawayFee)} de adicional para llevar.</p>}
 
       <section className="editor-section">
         <button type="button" className="section-toggle" aria-expanded={showNotes} onClick={() => setShowNotes(!showNotes)}>
@@ -717,24 +745,20 @@ function OrderEditor({ app, order, back, done }: { app: Restaurant; order?: Orde
 
       {order && <section className="editor-section">
         <label>Motivo de la corrección<input value={reason} onChange={event => setReason(event.target.value)} minLength={3} maxLength={450} required placeholder="¿Qué cambió y por qué?"/></label>
-        {order.paid && <div className="correction">
-          <strong>Este pedido ya está cobrado</strong>
-          <p>{difference > 0 ? `Cobra adicional: ${money(difference)}` : difference < 0 ? `Devuelve al cliente: ${money(-difference)}` : 'Sin diferencia en el total.'}</p>
-          {order.method === 'efectivo' && difference > 0 && <label>Efectivo adicional recibido ($)
-            <input type="number" inputMode="decimal" step="0.01" min={difference / 100} value={received} onChange={event => setReceived(event.target.value)} required/>
-            <span className="tiny">Suelto: {money(Math.max(0, cents(received) - difference))}</span>
-          </label>}
-          {order.method === 'transferencia' && difference !== 0 && <ReceiptUpload app={app} value={receipt} onChange={setReceipt}/>}
-        </div>}
       </section>}
 
       {app.error && <p className="alert alert-error" role="alert">{app.error}</p>}
 
       <div className="editor-foot">
-        <div><small>Total</small><strong>{money(displayedTotal)}</strong></div>
-        <button className="btn btn-primary btn-lg" disabled={app.busy || !service || !items.length || (!!order?.paid && order.method === 'transferencia' && difference !== 0 && !receipt)}>
-          {app.busy ? 'Guardando…' : order ? 'Guardar cambio' : 'Enviar a cocina'}<ArrowRight size={19}/>
-        </button>
+        <div><small>Total</small><strong>{money(itemsTotal)}</strong></div>
+        <div className="editor-foot-actions">
+          {!order?.paid && <button type="button" className="btn btn-money btn-lg" disabled={app.busy || !items.length} onClick={() => void submit(true)}>
+            {app.busy ? 'Guardando…' : 'Cobrar ahora'}<Banknote size={18}/>
+          </button>}
+          <button type="submit" className="btn btn-primary btn-lg" disabled={app.busy || !items.length}>
+            {app.busy ? 'Guardando…' : order ? 'Guardar cambio' : 'Enviar a cocina'}<ArrowRight size={19}/>
+          </button>
+        </div>
       </div>
     </form>
 
@@ -760,7 +784,7 @@ function ProductPicker({ app, selected, add }: { app: Restaurant; selected: Item
               <span className="product-row-photo"><ProductPhoto app={app} product={product}/></span>
               <span className="product-row-info">
                 <strong>{product.name}</strong>
-                <small>{product.category} · {businessLabel(product.business)}</small>
+                <small>{product.is_drink ? 'Agua o cola' : 'Comida'}{product.takeaway_fee ? ` · +${money(product.takeaway_fee)} para llevar` : ''}</small>
               </span>
               {count ? <span className="product-row-count">{count}</span> : null}
               <b className="product-row-price">{money(product.price)}</b>
@@ -773,40 +797,41 @@ function ProductPicker({ app, selected, add }: { app: Restaurant; selected: Item
 
 /* ----------------------------------------------------------------- Cajas */
 
-function Cash({ app, business, back, openDrinks }: { app: Restaurant; business: Business; back: () => void; openDrinks: () => void }) {
-  const [transferId, setTransferId] = useState(() => crypto.randomUUID())
-  const [form, setForm] = useState<'ingreso' | 'gasto' | 'retiro' | 'transferir' | null>(null)
+function Cash({ app, back }: { app: Restaurant; back: () => void }) {
+  const [form, setForm] = useState<'ingreso' | 'gasto' | 'retiro' | null>(null)
   const [method, setMethod] = useState<Method>('efectivo')
-  const [movementBusiness, setMovementBusiness] = useState<Business>(business)
   const [amount, setAmount] = useState('')
   const [reason, setReason] = useState('')
+  const [receipt, setReceipt] = useState<string | null>(null)
+  const [viewReceipt, setViewReceipt] = useState<string | null>(null)
 
-  const movements = app.data.movements.filter(movement => business === 'palatto' || movement.business === business)
+  const movements = [...app.data.movements].sort((a, b) => b.created_at.localeCompare(a.created_at))
   const balance = (method: Method) => movements.filter(movement => movement.method === method).reduce((sum, movement) => sum + movement.amount, 0)
 
   function closeForm() {
     setForm(null)
     setAmount('')
     setReason('')
-    setTransferId(crypto.randomUUID())
-    setMovementBusiness(business)
+    setReceipt(null)
   }
 
-  function openForm(next: 'ingreso' | 'gasto' | 'retiro' | 'transferir') {
-    setMovementBusiness(business)
+  function openForm(next: 'ingreso' | 'gasto' | 'retiro') {
     setForm(next)
     setMethod('efectivo')
   }
-  const targetBusiness = business === 'palatto' ? movementBusiness : business
+
+  async function showReceipt(path: string) {
+    try { setViewReceipt(await app.receiptUrl(path)) } catch (error) { app.setError((error as Error).message) }
+  }
 
   return <>
     <div className="subpage-bar">
       <button className="back-button" onClick={back} aria-label="Volver"><ChevronLeft size={22}/><span>Volver</span></button>
-      <div><p className="eyebrow">{businessLabel(business)}</p><h1>{registerLabel(business)}</h1></div>
+      <div><p className="eyebrow">Palatto</p><h1>Caja</h1></div>
     </div>
 
     <section className="balance-card">
-      <div className="balance-top"><span>{business === 'palatto' ? 'Saldo total del negocio' : 'Saldo de aguas y colas'}</span><span className="balance-state">Disponible</span></div>
+      <div className="balance-top"><span>Saldo total del negocio</span><span className="balance-state">Disponible</span></div>
       <strong>{money(balance('efectivo') + balance('transferencia'))}</strong>
       <div className="balance-split">
         <span><Banknote size={16}/>Efectivo<b>{money(balance('efectivo'))}</b></span>
@@ -814,67 +839,62 @@ function Cash({ app, business, back, openDrinks }: { app: Restaurant; business: 
       </div>
     </section>
 
-    {business === 'palatto' && <button className="cash-jump" onClick={openDrinks}>
-      <span className="cash-jump-icon"><Coffee size={18}/></span>
-      <span><strong>Caja de aguas y colas</strong><small>Ver su saldo y movimientos</small></span>
-      <ArrowRight size={18}/>
-    </button>}
-
-    {canCash(app.role, business)
+    {canCash(app.role, 'palatto')
       ? <div className="cash-actions">
           <button className="cash-action in" onClick={() => openForm('ingreso')}><Plus size={20}/>Ingresar</button>
           <button className="cash-action expense" onClick={() => openForm('gasto')}><ShoppingBag size={20}/>Gasto</button>
           <button className="cash-action out" onClick={() => openForm('retiro')}><ArrowDownLeft size={20}/>Retirar</button>
-          {app.role === 'superadmin' && <button className="cash-action move" onClick={() => openForm('transferir')}><ArrowRight size={20}/>Transferir</button>}
         </div>
-      : <p className="alert alert-info"><ShieldCheck size={17}/>Solo Administrador y Superadmin ajustan esta caja. Los cobros entran automáticamente.</p>}
+      : <p className="alert alert-info"><ShieldCheck size={17}/>Solo Administrador y Superadmin ajustan la caja. Los cobros entran automáticamente.</p>}
 
-    <DailyReport app={app} business={business}/>
+    <DailyReport app={app}/>
 
     <section className="stack">
       <div className="section-top"><h2>Movimientos</h2><span className="pill">{movements.length}</span></div>
       {!movements.length
         ? <p className="empty-line">Aquí verás cada ingreso, gasto, retiro y cobro.</p>
         : <ul className="movement-list">
-            {[...movements].sort((a, b) => b.created_at.localeCompare(a.created_at)).map(movement => <li className="movement" key={movement.id}>
+            {movements.map(movement => <li className="movement" key={movement.id}>
               <span className={`movement-icon ${movement.amount < 0 ? 'out' : ''}`}>{movement.amount < 0 ? <ArrowUpRight size={18}/> : <ArrowRight size={18}/>}</span>
-              <div><strong>{movement.reason}</strong><small>{movementKindLabel(movement.kind)}{business === 'palatto' ? ` · ${businessLabel(movement.business)}` : ''} · {dateTime(movement.created_at)} · {movement.method === 'efectivo' ? 'Efectivo' : 'Transferencia'}</small></div>
+              <div><strong>{movement.reason}</strong><small>{movementKindLabel(movement.kind)} · {dateTime(movement.created_at)} · {movement.method === 'efectivo' ? 'Efectivo' : 'Transferencia'}</small></div>
+              {movement.receipt && <button type="button" className="movement-receipt" onClick={() => void showReceipt(movement.receipt!)}>Factura</button>}
               <b className={movement.amount < 0 ? 'negative' : 'positive'}>{movement.amount > 0 ? '+' : '−'}{money(Math.abs(movement.amount))}</b>
             </li>)}
           </ul>}
     </section>
 
-    {form && <Modal title={form === 'ingreso' ? 'Ingresar dinero' : form === 'gasto' ? 'Registrar gasto' : form === 'retiro' ? 'Retirar de caja' : 'Transferir entre cajas'} close={closeForm} page>
+    {form && <Modal title={form === 'ingreso' ? 'Ingresar dinero' : form === 'gasto' ? 'Registrar gasto' : 'Retirar de caja'} close={closeForm} page>
       <form className="form-stack" onSubmit={async event => {
         event.preventDefault()
         const value = cents(amount)
-        const done = form === 'transferir'
-          ? await app.transfer(transferId, targetBusiness, value, method, reason)
-          : await app.cash(targetBusiness, form === 'retiro' || form === 'gasto' ? -value : value, method, reason, form)
+        const done = await app.cash('palatto', form === 'retiro' || form === 'gasto' ? -value : value, method, reason, form, form === 'gasto' ? receipt : null)
         if (done) closeForm()
       }}>
-        {business === 'palatto' && <label>Caja<select value={movementBusiness} onChange={event => setMovementBusiness(event.target.value as Business)}><option value="palatto">Caja principal</option><option value="carreta">Aguas y colas</option></select></label>}
-        {form === 'transferir' && <p className="alert alert-info">Destino: <strong>{targetBusiness === 'palatto' ? 'Caja de aguas y colas' : 'Caja principal'}</strong></p>}
         {form === 'gasto' && <p className="alert alert-info">Un gasto es una salida para comprar algo. Un retiro es sacar dinero del negocio.</p>}
         <label>Importe ($)<input type="number" inputMode="decimal" step="0.01" min="0.01" max="1000000" required value={amount} onChange={event => setAmount(event.target.value)} placeholder="0.00" autoFocus/></label>
         <label>Medio<select value={method} onChange={event => setMethod(event.target.value as Method)}>
           <option value="efectivo">Efectivo</option>
           <option value="transferencia">Transferencia</option>
         </select></label>
-        <label>Motivo<textarea rows={2} required minLength={3} maxLength={450} value={reason} onChange={event => setReason(event.target.value)} placeholder={form === 'ingreso' ? 'Fondo para dar suelto' : form === 'gasto' ? 'Compra de hielo, proveedor…' : form === 'retiro' ? 'Retiro del dueño' : 'Cambio de caja'}/></label>
+        <label>Motivo<textarea rows={2} required minLength={3} maxLength={450} value={reason} onChange={event => setReason(event.target.value)} placeholder={form === 'ingreso' ? 'Fondo para dar suelto' : form === 'gasto' ? 'Compra de hielo, proveedor…' : 'Retiro del dueño'}/></label>
+        {form === 'gasto' && <ReceiptUpload app={app} value={receipt} onChange={setReceipt} title="Subir factura" hint="Opcional · foto o archivo JPG, PNG o WebP"/>}
         {app.error && <p className="alert alert-error" role="alert">{app.error}</p>}
         <button className="btn btn-primary btn-lg btn-block" disabled={app.busy}>
-          {app.busy ? 'Guardando…' : form === 'ingreso' ? 'Ingresar dinero' : form === 'gasto' ? 'Registrar gasto' : form === 'retiro' ? 'Retirar dinero' : 'Transferir'}<Check size={18}/>
+          {app.busy ? 'Guardando…' : form === 'ingreso' ? 'Ingresar dinero' : form === 'gasto' ? 'Registrar gasto' : 'Retirar dinero'}<Check size={18}/>
         </button>
       </form>
+    </Modal>}
+
+    {viewReceipt && <Modal title="Factura del gasto" close={() => setViewReceipt(null)}>
+      <img className="receipt-image" src={viewReceipt} alt="Factura del movimiento"/>
     </Modal>}
   </>
 }
 
 const reportDate = (value: string) => new Intl.DateTimeFormat('en-CA', { timeZone: 'America/Guayaquil', year: 'numeric', month: '2-digit', day: '2-digit' }).format(new Date(value))
-function DailyReport({ app, business }: { app: Restaurant; business: Business }) {
+function DailyReport({ app }: { app: Restaurant }) {
   const [day, setDay] = useState(() => reportDate(new Date().toISOString()))
-  const records = app.data.movements.filter(movement => (business === 'palatto' || movement.business === business) && reportDate(movement.created_at) === day)
+  const records = app.data.movements.filter(movement => reportDate(movement.created_at) === day)
   const kinds: MovementKind[] = ['cobro', 'ingreso', 'gasto', 'retiro', 'correccion', 'transferencia']
   return <details className="daily-report">
     <summary>Reporte del día<span>{new Date(day + 'T12:00:00').toLocaleDateString('es-EC', { day: 'numeric', month: 'short' })}</span></summary>
@@ -896,31 +916,31 @@ function DailyReport({ app, business }: { app: Restaurant; business: Business })
 }
 
 function DailySummary({ app, onCash }: { app: Restaurant; onCash: (business: Business) => void }) {
-  const todayKey = reportDate(new Date().toISOString())
+  const now = new Date()
+  const summary = analyze(app.data.orders, app.data.products, 'hoy', now, paymentTimes(app.data.movements), app.data.order_payments)
+  const todayKey = reportDate(now.toISOString())
   const movements = app.data.movements.filter(movement => reportDate(movement.created_at) === todayKey).sort((a, b) => b.created_at.localeCompare(a.created_at))
   const sum = (kind: MovementKind) => movements.filter(movement => movement.kind === kind).reduce((value, movement) => value + movement.amount, 0)
-  const sales = sum('cobro')
   const expenses = Math.max(0, -sum('gasto'))
   const cashBalance = app.data.movements.reduce((value, movement) => value + movement.amount, 0)
   const balanceByMethod = (method: Method) => app.data.movements.filter(movement => movement.method === method).reduce((value, movement) => value + movement.amount, 0)
-  const collectedByMethod = (method: Method) => movements.filter(movement => movement.kind === 'cobro' && movement.method === method).reduce((value, movement) => value + movement.amount, 0)
-  const drinksTransfers = movements.filter(movement => movement.business === 'carreta' && movement.kind === 'cobro' && movement.method === 'transferencia').reduce((value, movement) => value + movement.amount, 0)
-  const chartMax = Math.max(sales, expenses, cashBalance, 1)
+  const chartMax = Math.max(summary.revenue, expenses, cashBalance, 1)
   return <div className="daily-summary-page">
     <div className="page-heading"><div><p className="eyebrow">Palatto · {new Date(todayKey + 'T12:00:00').toLocaleDateString('es-EC', { weekday: 'long', day: 'numeric', month: 'long' })}</p><h1>Resumen del día</h1></div></div>
     <div className="daily-summary-grid">
-      <article className="daily-summary-stat sales"><small>Cobrado hoy</small><strong>{money(sales)}</strong></article>
-      <article className="daily-summary-stat cash"><small>Saldo de ambas cajas</small><strong>{money(cashBalance)}</strong></article>
-      <article className="daily-summary-stat expenses"><small>Gastado hoy</small><strong>{money(expenses)}</strong></article>
+      <article className="daily-summary-stat sales"><small>Vendido hoy</small><strong>{money(summary.revenue)}</strong><span>Confirmado al cobrar</span></article>
+      <article className="daily-summary-stat orders"><small>Pedidos cobrados</small><strong>{summary.orders}</strong><span>En el día</span></article>
+      <article className="daily-summary-stat drinks"><small>Aguas y colas</small><strong>{money(summary.drinksRevenue)}</strong><span>Dinero en bebidas</span></article>
+      <article className="daily-summary-stat cash"><small>Saldo en caja</small><strong>{money(cashBalance)}</strong><span>Efectivo y transferencias</span></article>
     </div>
     <section className="summary-payment-breakdown" aria-label="Desglose de efectivo y transferencias">
-      <div><h2>Cobros de hoy</h2><p><span><Banknote size={16}/>Efectivo</span><b>{money(collectedByMethod('efectivo'))}</b></p><p><span><CreditCard size={16}/>Transferencias</span><b>{money(collectedByMethod('transferencia'))}</b></p>
-        {drinksTransfers > 0 && <small>{money(drinksTransfers)} de la transferencia corresponde a aguas y colas, registrada como transferencia.</small>}
+      <div><h2>Cobros de hoy</h2><p><span><Banknote size={16}/>Efectivo</span><b>{money(summary.byMethod.efectivo.revenue)}</b></p><p><span><CreditCard size={16}/>Transferencias</span><b>{money(summary.byMethod.transferencia.revenue)}</b></p>
+        <small>{summary.byMethod.efectivo.orders} {summary.byMethod.efectivo.orders === 1 ? 'pedido' : 'pedidos'} en efectivo · {summary.byMethod.transferencia.orders} por transferencia.</small>
       </div>
       <div><h2>Saldo disponible</h2><p><span><Banknote size={16}/>Efectivo</span><b>{money(balanceByMethod('efectivo'))}</b></p><p><span><CreditCard size={16}/>Transferencias</span><b>{money(balanceByMethod('transferencia'))}</b></p></div>
     </section>
     <section className="summary-figure" aria-label="Gráfica de ventas, saldo en caja y gastos"><div className="summary-figure-heading"><div><span className="eyebrow">Vista rápida</span><h2>Así va el día</h2></div><span className="summary-figure-mark"><BarChart3 size={19}/></span></div>
-      {[['Vendido', sales, 'sales'], ['En caja', cashBalance, 'cash'], ['Gastado', expenses, 'expenses']].map(([label, value, style]) => <div className="summary-bar-row" key={String(label)}><div><span>{label}</span><b>{money(Number(value))}</b></div><span className="summary-bar-track"><i className={String(style)} style={{ width: `${Math.max(2, Number(value) / chartMax * 100)}%` }}/></span></div>)}
+      {[['Vendido', summary.revenue, 'sales'], ['En caja', cashBalance, 'cash'], ['Gastado', expenses, 'expenses']].map(([label, value, style]) => <div className="summary-bar-row" key={String(label)}><div><span>{label}</span><b>{money(Number(value))}</b></div><span className="summary-bar-track"><i className={String(style)} style={{ width: `${Math.max(2, Number(value) / chartMax * 100)}%` }}/></span></div>)}
     </section>
     <button className="daily-register-card summary-cash-link" onClick={() => onCash('palatto')}><span><small>Detalle</small><strong>Abrir movimientos de caja</strong></span><ArrowRight size={18}/></button>
     <section className="daily-summary-log">
@@ -928,7 +948,7 @@ function DailySummary({ app, onCash }: { app: Restaurant; onCash: (business: Bus
       {!movements.length ? <div className="empty"><div className="empty-icon"><Receipt size={26}/></div><h3>Aún no hay movimientos</h3><p>Los cobros y gastos aparecerán aquí en cuanto se registren.</p></div> : <div className="movement-list">
         {movements.map(movement => <div className="movement" key={movement.id}>
           <span className={`movement-icon ${movement.amount < 0 ? 'out' : ''}`}>{movement.amount < 0 ? <ArrowDownLeft size={17}/> : <ArrowUpRight size={17}/>}</span>
-          <div><strong>{movement.reason}</strong><small>{movementKindLabel(movement.kind)} · {businessLabel(movement.business)} · {dateTime(movement.created_at)} · {movement.method === 'efectivo' ? 'Efectivo' : 'Transferencia'}</small></div>
+          <div><strong>{movement.reason}</strong><small>{movementKindLabel(movement.kind)} · {dateTime(movement.created_at)} · {movement.method === 'efectivo' ? 'Efectivo' : 'Transferencia'}</small></div>
           <b className={movement.amount < 0 ? 'negative' : 'positive'}>{movement.amount < 0 ? '−' : '+'}{money(Math.abs(movement.amount))}</b>
         </div>)}
       </div>}
@@ -940,9 +960,10 @@ function DailySummary({ app, onCash }: { app: Restaurant; onCash: (business: Bus
 
 function Menu({ app }: { app: Restaurant }) {
   const [editing, setEditing] = useState<Product | null>(null)
-  const [filter, setFilter] = useState<'todos' | Business>('todos')
-  const blank: Product = { id: '', name: '', price: 0, business: 'palatto', category: 'General', active: true }
-  const products = app.data.products.filter(product => filter === 'todos' || product.business === filter)
+  const [deleting, setDeleting] = useState<Product | null>(null)
+  const [search, setSearch] = useState('')
+  const blank: Product = { id: '', name: '', price: 0, business: 'palatto', category: 'General', active: true, is_drink: false }
+  const products = app.data.products.filter(product => product.name.toLowerCase().includes(search.trim().toLowerCase()))
 
   return <>
     <div className="page-head">
@@ -950,27 +971,47 @@ function Menu({ app }: { app: Restaurant }) {
       {canMenu(app.role) && <button className="btn btn-primary" onClick={() => setEditing(blank)}><Plus size={18}/>Agregar</button>}
     </div>
 
-    <div className="segmented" role="group" aria-label="Filtrar menú">
-      {([['todos', 'Todo'], ['palatto', 'Palatto'], ['carreta', 'Aguas y colas']] as const).map(([id, label]) =>
-        <button key={id} className={filter === id ? 'active' : ''} aria-pressed={filter === id} onClick={() => setFilter(id)}>{label}</button>)}
-    </div>
+    <label className="search menu-search">
+      <Search size={18} aria-hidden="true"/>
+      <input aria-label="Buscar producto" placeholder="Buscar en el menú" value={search} onChange={event => setSearch(event.target.value)}/>
+    </label>
 
     {!products.length
-      ? <Empty title="Tu menú está vacío" action={canMenu(app.role) ? <button className="btn btn-primary" onClick={() => setEditing(blank)}><Plus size={18}/>Agregar producto</button> : undefined}>
-          Agrega los productos de Palatto y las aguas y colas con sus precios.
+      ? <Empty title={search ? 'No encontramos ese producto' : 'Tu menú está vacío'} action={!search && canMenu(app.role) ? <button className="btn btn-primary" onClick={() => setEditing(blank)}><Plus size={18}/>Agregar producto</button> : undefined}>
+          {search ? 'Prueba con otro nombre.' : 'Agrega los productos y sus precios.'}
         </Empty>
       : <ul className="menu-list">
           {products.map(product => <li className={`menu-row ${product.active ? '' : 'is-hidden'}`} key={product.id}>
             <ProductPhoto app={app} product={product}/>
-            <div className="menu-info"><strong>{product.name}</strong><small>{product.category} · {businessLabel(product.business)}</small></div>
+            <div className="menu-info">
+              <strong>{product.name}</strong>
+              <small>{product.is_drink ? 'Agua o cola' : 'Comida'}{product.takeaway_fee ? ` · +${money(product.takeaway_fee)} para llevar` : ''}</small>
+            </div>
             <b className="menu-price">{money(product.price)}</b>
             {canMenu(app.role)
-              ? <button className="icon-button" aria-label={`Editar ${product.name}`} onClick={() => setEditing(product)}><Pencil size={17}/></button>
+              ? <div className="menu-actions">
+                  <button className="icon-button" aria-label={`Editar ${product.name}`} onClick={() => setEditing(product)}><Pencil size={17}/></button>
+                  <button className="icon-button danger" aria-label={`Eliminar ${product.name}`} onClick={() => setDeleting(product)}><Trash2 size={17}/></button>
+                </div>
               : <span className={`chip ${product.active ? 'chip-on' : 'chip-off'}`}><i/>{product.active ? 'Activo' : 'Oculto'}</span>}
           </li>)}
         </ul>}
 
     {editing && <ProductForm key={editing.id} app={app} product={editing} close={() => setEditing(null)}/>}
+
+    {deleting && <Modal title="Eliminar producto" close={() => setDeleting(null)}>
+      <div className="form-stack">
+        <div className="alert alert-danger">
+          <Trash2 size={20}/>
+          <div><strong>{deleting.name}</strong><p>Dejará de aparecer en el menú. Los pedidos anteriores conservan su nombre y precio.</p></div>
+        </div>
+        {app.error && <p className="alert alert-error" role="alert">{app.error}</p>}
+        <button className="btn btn-danger btn-block btn-lg" disabled={app.busy} onClick={async () => { if (await app.deleteProduct(deleting)) setDeleting(null) }}>
+          <Trash2 size={18}/>{app.busy ? 'Eliminando…' : 'Sí, eliminar producto'}
+        </button>
+        <button className="btn btn-ghost btn-block" disabled={app.busy} onClick={() => setDeleting(null)}>Volver</button>
+      </div>
+    </Modal>}
   </>
 }
 
@@ -981,10 +1022,21 @@ function ProductForm({ app, product, close }: { app: Restaurant; product: Produc
   const [draft, setDraft] = useState(product)
   const [price, setPrice] = useState(product.price ? String(product.price / 100) : '')
 
+  function applyFee() {
+    setHasFee(true)
+    if (!fee.trim()) setFee('0.25')
+  }
+
   return <Modal title={product.id ? 'Editar producto' : 'Nuevo producto'} close={close} page>
     <form className="form-stack" onSubmit={async event => {
       event.preventDefault()
-      if (await app.saveProduct({ ...draft, price: cents(price), takeaway_fee: hasFee ? cents(fee) : 0 })) close()
+      if (await app.saveProduct({
+        ...draft,
+        price: cents(price),
+        takeaway_fee: hasFee ? cents(fee) : 0,
+        business: draft.is_drink ? 'carreta' : 'palatto',
+        category: draft.is_drink ? 'Aguas y colas' : 'General',
+      })) close()
     }}>
       <label className="photo-field">Foto
         <ProductPhoto app={app} product={draft}/>
@@ -999,20 +1051,18 @@ function ProductForm({ app, product, close }: { app: Restaurant; product: Produc
         {uploading && <span className="tiny">Subiendo foto…</span>}
       </label>
       <label>Nombre<input required maxLength={120} value={draft.name} onChange={event => setDraft({ ...draft, name: event.target.value })} placeholder="Ej. Hamburguesa Palatto"/></label>
-      <div className="form-columns">
-        <label>Precio ($)<input type="number" inputMode="decimal" step="0.01" min="0.01" max="10000" required value={price} onChange={event => setPrice(event.target.value)}/></label>
-        <label>Negocio<select value={draft.business} onChange={event => setDraft({ ...draft, business: event.target.value as Business })}>
-          <option value="palatto">Palatto</option><option value="carreta">Aguas y colas</option>
-        </select></label>
-      </div>
-      <label>Categoría<input required value={draft.category} onChange={event => setDraft({ ...draft, category: event.target.value })} placeholder="Hamburguesas, sorbetes…"/></label>
+      <label>Precio ($)<input type="number" inputMode="decimal" step="0.01" min="0.01" max="10000" required value={price} onChange={event => setPrice(event.target.value)}/></label>
+      <label className="switch-row">
+        <span><strong>Es agua o cola</strong><small>Se suma aparte en el resumen del día.</small></span>
+        <input type="checkbox" checked={Boolean(draft.is_drink)} onChange={event => setDraft({ ...draft, is_drink: event.target.checked })}/>
+      </label>
       <fieldset className="fieldset">
         <legend>Tarifa para llevar</legend>
         <div className="segmented">
           <button type="button" className={!hasFee ? 'active' : ''} aria-pressed={!hasFee} onClick={() => setHasFee(false)}>No aplica</button>
-          <button type="button" className={hasFee ? 'active' : ''} aria-pressed={hasFee} onClick={() => setHasFee(true)}>Sí aplica</button>
+          <button type="button" className={hasFee ? 'active' : ''} aria-pressed={hasFee} onClick={applyFee}>Sí aplica</button>
         </div>
-        {hasFee && <label>Adicional por unidad ($)<input type="number" inputMode="decimal" min="0.01" max="10000" step="0.01" required value={fee} onChange={event => setFee(event.target.value)} placeholder="0.50"/></label>}
+        {hasFee && <label>Adicional por unidad ($)<input type="number" inputMode="decimal" min="0.01" max="10000" step="0.01" required value={fee} onChange={event => setFee(event.target.value)} placeholder="0.25"/></label>}
       </fieldset>
       <label className="switch-row">
         <span><strong>Disponible en el menú</strong><small>Si lo ocultas, no se puede pedir.</small></span>
@@ -1081,7 +1131,7 @@ function Team({ app }: { app: Restaurant }) {
 
     <details className="roles-guide">
       <summary>¿Qué puede hacer cada rol?</summary>
-      {[['Superadmin', 'Acceso total y gestión de usuarios.'], ['Administrador', 'Pedidos, menú y ambas cajas de Palatto.'], ['Cocinero', 'Toma y cobra pedidos de cocina.'], ['Mesera', 'Toma, modifica y cobra pedidos.'], ['Mesero', 'Toma, modifica y cobra pedidos.'], ['Visualizador', 'Solo consulta, sin cambios.']].map(([title, description]) =>
+      {[['Superadmin', 'Acceso total y gestión de usuarios.'], ['Administrador', 'Pedidos, menú y caja de Palatto.'], ['Cocinero', 'Toma y cobra pedidos de cocina.'], ['Mesera', 'Toma, modifica y cobra pedidos.'], ['Mesero', 'Toma, modifica y cobra pedidos.'], ['Visualizador', 'Solo consulta, sin cambios.']].map(([title, description]) =>
         <div key={title}><strong>{title}</strong><p>{description}</p></div>)}
     </details>
 
@@ -1212,7 +1262,6 @@ function AccountPage({ app, installPrompt, installed, navigate, onInstall }: { a
       {app.role === 'superadmin' && <button className="account-link" onClick={() => navigate('equipo')}><Users size={20}/><span>Equipo y cuentas</span><ArrowRight size={18}/></button>}
     </div>
     <button className="btn btn-ghost btn-block" disabled={app.busy} onClick={() => void app.logout()}><LogOut size={18}/>Cerrar sesión</button>
-    {app.notice && <p className="tiny center">{app.notice}</p>}
   </div>
 }
 
@@ -1227,5 +1276,5 @@ function decodeVapidKey(key: string) {
 function ProductPhoto({ app, product }: { app: Restaurant; product: Product }) {
   return product.image_path
     ? <img className="product-photo" src={app.productPhotoUrl(product.image_path)} alt={product.name} loading="lazy"/>
-    : <span className="product-photo photo-placeholder" aria-hidden="true">{product.business === 'carreta' ? <Coffee size={22}/> : <Flame size={22}/>}</span>
+    : <span className="product-photo photo-placeholder" aria-hidden="true">{product.is_drink ? <Coffee size={22}/> : <Flame size={22}/>}</span>
 }

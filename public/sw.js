@@ -4,7 +4,8 @@ self.addEventListener('push', event => {
   const title = typeof message.title === 'string' ? message.title : 'Palatto'
   const body = typeof message.body === 'string' ? message.body : 'Tienes una actualización nueva.'
   const url = typeof message.url === 'string' && message.url.startsWith('/') && !message.url.startsWith('//') ? message.url : '/'
-  event.waitUntil(self.registration.showNotification(title, { body, icon: '/palatto-logo.png', badge: '/palatto-logo.png', data: { url }, tag: 'palatto-pedido' }))
+  const tag = `palatto-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`
+  event.waitUntil(self.registration.showNotification(title, { body, icon: '/palatto-logo.png', badge: '/palatto-logo.png', data: { url }, tag, renotify: true }))
 })
 
 self.addEventListener('notificationclick', event => {

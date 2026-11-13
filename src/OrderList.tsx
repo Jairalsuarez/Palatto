@@ -1,8 +1,8 @@
 import { Banknote, ChevronRight, Users } from 'lucide-react'
-import { money, orderTotal } from './lib/domain'
+import { money, orderService, orderTotal } from './lib/domain'
 import type { Order, OrderPayment } from './lib/domain'
 
-const number = (n: number) => String(n).padStart(4, '0')
+const number = (n: number) => String(n)
 const time = (value: string) => new Date(value).toLocaleTimeString('es-EC', { hour: '2-digit', minute: '2-digit' })
 
 export function OrderList({ orders, canPay, payments, open, pay }: { orders: Order[]; canPay: boolean; payments: OrderPayment[]; open: (order: Order) => void; pay: (order: Order) => void }) {
@@ -25,7 +25,7 @@ export function OrderList({ orders, canPay, payments, open, pay }: { orders: Ord
             <ChevronRight size={18} className="order-chevron" aria-hidden="true"/>
           </span>
           <span className="order-meta">
-            {order.takeaway ? 'Para llevar' : 'Para servir'} · {time(order.created_at)} · {items} artículo{items === 1 ? '' : 's'}
+            {orderService(order)} · {time(order.created_at)} · {items} artículo{items === 1 ? '' : 's'}
           </span>
           <span className="order-items">{summary}</span>
           {order.notes && <span className="order-note-line">{order.notes}</span>}

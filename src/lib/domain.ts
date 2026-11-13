@@ -3,11 +3,11 @@ export type Business = 'palatto' | 'carreta'
 export type Method = 'efectivo' | 'transferencia'
 export type MovementKind = 'ingreso' | 'gasto' | 'retiro' | 'cobro' | 'correccion' | 'transferencia'
 export interface Profile { id: string; name: string; role: Role; active: boolean; email?: string; must_change_password?: boolean }
-export interface Product { takeaway_fee?: number; image_path?: string | null; id: string; name: string; price: number; business: Business; category: string; active: boolean }
-export interface Item { base_price?: number; takeaway_fee?: number; product_id: string; name: string; price: number; quantity: number; business: Business }
-export interface Order { takeaway?: boolean; split_payment?: boolean; adjustment?: number; adjustment_reason?: string | null; id: string; number: number; customer: string; notes: string; items: Item[]; status: 'en_proceso' | 'completado'; paid: boolean; method: Method | null; receipt: string | null; created_at: string; version: number }
+export interface Product { takeaway_fee?: number; image_path?: string | null; id: string; name: string; price: number; business: Business; category: string; active: boolean; is_drink?: boolean }
+export interface Item { base_price?: number; takeaway_fee?: number; takeaway_quantity?: number; is_drink?: boolean; product_id: string; name: string; price: number; quantity: number; business: Business }
+export interface Order { takeaway?: boolean; split_payment?: boolean; order_day?: string; paid_at?: string | null; adjustment?: number; adjustment_reason?: string | null; id: string; number: number; customer: string; notes: string; items: Item[]; status: 'en_proceso' | 'completado'; paid: boolean; method: Method | null; receipt: string | null; created_at: string; version: number }
 export interface Shift { id: string; business: Business; opened_at: string; closed_at: string | null }
-export interface Movement { id: string; business: Business; amount: number; method: Method; reason: string; kind: MovementKind; order_id: string | null; created_at: string; actor?: string }
+export interface Movement { id: string; business: Business; amount: number; method: Method; reason: string; kind: MovementKind; order_id: string | null; receipt?: string | null; created_at: string; actor?: string }
 export interface OrderPayment { id: string; order_id: string; label: string; items: Item[]; amount: number; method: Method; receipt: string | null; created_by: string; created_at: string }
 export interface Audit { id: string; order_id: string; reason: string; created_at: string; actor: string }
 export interface Data { products: Product[]; orders: Order[]; shifts: Shift[]; movements: Movement[]; order_payments: OrderPayment[]; profiles: Profile[]; audits: Audit[] }
@@ -17,7 +17,9 @@ export const businessLabel = (b: Business) => b === 'palatto' ? 'Palatto' : 'Agu
 export const registerLabel = (b: Business) => b === 'palatto' ? 'Caja principal' : 'Caja de aguas y colas'
 export const money = (cents: number) => new Intl.NumberFormat('es-EC', { style: 'currency', currency: 'USD' }).format(cents / 100)
 export const cents = (value: string) => Math.round(Number(value) * 100)
-export const total = (items: Item[], business?: Business) => items.filter(i => !business || i.business === business).reduce((sum, i) => sum + i.price * i.quantity, 0)
+export const itemTotal = (item: Item) => item.price * item.quantity + (item.takeaway_fee || 0) * (item.takeaway_quantity || 0)
+export const itemIsDrink = (item: Item) => Boolean(item.is_drink) || item.business === 'carreta'
+export const total = (items: Item[], business?: Business) => items.filter(i => !business || i.business === business).reduce((sum, i) => sum + itemTotal(i), 0)
 export const canWrite = (role: Role) => role !== 'visualizador'
 export const canMenu = (role: Role) => ['superadmin', 'administrador'].includes(role)
 export const canCash = (role: Role, _b: Business) => role === 'superadmin' || role === 'administrador'
@@ -39,4 +41,24 @@ export function splitTotal(items: Item[], amount: number) {
 }
 export function orderSplit(order: Order) { return splitTotal(order.items, orderTotal(order)) }
 
-export function priceForService(items: Item[], takeaway: boolean): Item[] { return items.map(item=>({...item,base_price:item.base_price??item.price,price:(item.base_price??item.price)+(takeaway?(item.takeaway_fee??0):0)})) }
+/** Keeps the base price and only changes how many units of a line are takeaway. */
+export function priceForService(items: Item[], takeaway: boolean): Item[] {
+  return items.map(item => ({
+    ...item,
+    base_price: item.base_price ?? item.price,
+    takeaway_quantity: takeaway ? item.quantity : 0,
+  }))
+}
+
+export function orderService(order: Order): string {
+  const quantity = order.items.reduce((sum, item) => sum + item.quantity, 0)
+  const takeaway = order.items.reduce((sum, item) => sum + Math.min(item.quantity, item.takeaway_quantity || 0), 0)
+  if (!takeaway) return 'Para servir'
+  if (takeaway >= quantity) return 'Para llevar'
+  return `${takeaway} de ${quantity} para llevar`
+}
+
+export function hasTakeawayItems(order: Order) {
+  return order.items.some(item => (item.takeaway_quantity || 0) > 0)
+}
+

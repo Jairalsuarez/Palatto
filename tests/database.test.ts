@@ -28,7 +28,7 @@ async function scalar(sql: string, args: unknown[] = []) {
 }
 after(async () => { await db.close() })
 
-test('Un solo negocio con dos cajas, pagos divididos y movimientos diferenciados', async t => {
+test('Un solo menú, una sola caja, numeración diaria y ajustes', async t => {
   await db.exec(`create role anon;create role authenticated;create schema auth;create schema storage;
   create table auth.users(id uuid primary key);
   create function auth.uid() returns uuid language sql stable as $$select nullif(current_setting('request.jwt.claim.sub',true),'')::uuid$$;
@@ -50,11 +50,34 @@ test('Un solo negocio con dos cajas, pagos divididos y movimientos diferenciados
   }
 
   await user('superadmin')
-  await db.query("select save_product($1,'Hamburguesa',350,'palatto','Comida',true,null,50)", [burger])
-  await db.query("select save_product($1,'Agua de coco',200,'palatto','Sorbetes',true)", [drink])
+  await db.query("select save_product($1,'Hamburguesa',350,true,false,null,50)", [burger])
+  await db.query("select save_product($1,'Agua de coco',200,true,true)", [drink])
 
-  await t.test('Las aguas y colas se registran aparte del negocio principal', async () => {
+  await t.test('Un solo menú: el check de agua o cola define el resumen', async () => {
+    assert.equal(await scalar('select is_drink from products where id=$1', [burger]), false)
+    assert.equal(await scalar('select is_drink from products where id=$1', [drink]), true)
+    assert.equal(await scalar('select category from products where id=$1', [drink]), 'Aguas y colas')
     assert.equal(await scalar('select business from products where id=$1', [drink]), 'carreta')
+    assert.equal(await scalar('select business from products where id=$1', [burger]), 'palatto')
+  })
+
+  await t.test('El menú no pide negocio ni categoría al crear', async () => {
+    const extra = '10000000-0000-0000-0000-000000000003'
+    await db.query("select save_product($1,'Papas',150,true)", [extra])
+    assert.deepEqual((await db.query('select business,category,is_drink from products where id=$1', [extra])).rows, [
+      { business: 'palatto', category: 'General', is_drink: false },
+    ])
+  })
+
+  await t.test('Eliminar un producto no afecta los pedidos históricos', async () => {
+    const extra = '10000000-0000-0000-0000-000000000003'
+    await user('mesera')
+    const order = await scalar("select create_order('Mesa histórica','',$1::jsonb)", [JSON.stringify([{ product_id: extra, quantity: 1 }])])
+    await user('superadmin')
+    await db.query('select delete_product($1)', [extra])
+    assert.equal(await scalar('select active from products where id=$1', [extra]), false)
+    assert.equal(await scalar("select items->0->>'name' from orders where id=$1", [order]), 'Papas')
+    assert.equal(await scalar("select (items->0->>'price')::integer from orders where id=$1", [order]), 150)
   })
 
   await t.test('Los productos activos se venden sin abrir turno', async () => {
@@ -63,26 +86,48 @@ test('Un solo negocio con dos cajas, pagos divididos y movimientos diferenciados
     assert.ok(order)
   })
 
+  await t.test('La numeración empieza en 1 y se reinicia cada día', async () => {
+    await db.exec('reset role')
+    await db.exec('delete from public.orders')
+    await db.query("insert into orders(number,order_day,customer,notes,items,created_by) values(9,current_date - 1,'Ayer','',$1::jsonb,$2)", [burgerItems, ids.mesera])
+    await user('mesera')
+    const order = await scalar("select create_order('Mesa hoy','',$1::jsonb)", [burgerItems])
+    const row = (await db.query('select number,order_day::text as order_day from orders where id=$1', [order])).rows[0] as { number: number; order_day: string }
+    assert.equal(row.number, 1)
+    assert.equal(row.order_day, new Date().toLocaleDateString('en-CA', { timeZone: 'America/Guayaquil' }))
+    const next = await scalar("select create_order('Mesa hoy 2','',$1::jsonb)", [burgerItems])
+    assert.equal(await scalar('select number from orders where id=$1', [next]), 2)
+  })
+
   await t.test('Los precios y cantidades vienen del servidor', async () => {
     await user('mesera')
     const order = await scalar("select create_order('Mesa 2','',$1::jsonb,true)", [JSON.stringify([{ product_id: burger, quantity: 2, price: 1 }, { product_id: drink, quantity: 1, takeaway_fee: 999 }])])
-    const items = await scalar('select items from orders where id=$1', [order]) as { price: number; takeaway_fee: number }[]
-    assert.deepEqual(items.map(item => item.price), [400, 200])
+    const items = await scalar('select items from orders where id=$1', [order]) as { price: number; takeaway_fee: number; takeaway_quantity: number }[]
+    assert.deepEqual(items.map(item => item.price), [350, 200])
     assert.equal(items[0].takeaway_fee, 50)
+    assert.equal(items[0].takeaway_quantity, 2)
+    assert.equal(items[1].takeaway_quantity, 1)
   })
 
-  await t.test('Cada rol administra solo su caja', async () => {
+  await t.test('Un solo producto puede ser para llevar y el resto para la mesa', async () => {
+    await user('mesera')
+    const order = await scalar("select create_order('Mesa 3','',$1::jsonb)", [JSON.stringify([{ product_id: burger, quantity: 3, takeaway_quantity: 1 }])])
+    const items = await scalar('select items from orders where id=$1', [order]) as { takeaway_quantity: number; quantity: number; price: number; takeaway_fee: number }[]
+    assert.equal(items[0].takeaway_quantity, 1)
+    assert.equal(await scalar('select takeaway from orders where id=$1', [order]), false)
+    assert.equal(await scalar('select sum((i->>\'price\')::integer*(i->>\'quantity\')::integer + (i->>\'takeaway_fee\')::integer*(i->>\'takeaway_quantity\')::integer)::integer from orders o cross join lateral jsonb_array_elements(o.items) i where o.id=$1', [order]), 1100)
+  })
+
+  await t.test('Cada rol administra solo la caja del negocio', async () => {
     const customers = { cocinero: 'Cocinero', mesera: 'Mesera', visualizador: 'Visor' } as const
     for (const [role, reason] of Object.entries(customers)) {
       await user(role as keyof typeof ids)
       await assert.rejects(db.query("select cash_movement('palatto',100,'efectivo',$1)", [reason]), /permiso/)
     }
     await user('carreta')
-    await db.query("select cash_movement('carreta',100,'efectivo','Fondo de aguas y colas')")
     await assert.rejects(db.query("select cash_movement('palatto',100,'efectivo','Fondo')"), /permiso/)
     await user('administrador')
     await db.query("select cash_movement('palatto',100,'efectivo','Fondo de caja')")
-    await db.query("select cash_movement('carreta',100,'efectivo','Fondo de bebidas')")
   })
 
   await t.test('Gasto, retiro e ingreso quedan registrados con su tipo', async () => {
@@ -90,7 +135,7 @@ test('Un solo negocio con dos cajas, pagos divididos y movimientos diferenciados
     await db.query("select cash_movement('palatto',900,'efectivo','Fondo extra','ingreso')")
     await db.query("select cash_movement('palatto',-150,'efectivo','Compra de pan','gasto')")
     await db.query("select cash_movement('palatto',-250,'efectivo','Retiro del dueño','retiro')")
-    assert.deepEqual((await db.query("select kind,amount from movements where business='palatto' and order_id is null order by amount desc")).rows, [
+    assert.deepEqual((await db.query("select kind,amount from movements where order_id is null order by amount desc")).rows, [
       { kind: 'ingreso', amount: 900 },
       { kind: 'ingreso', amount: 100 },
       { kind: 'gasto', amount: -150 },
@@ -99,100 +144,76 @@ test('Un solo negocio con dos cajas, pagos divididos y movimientos diferenciados
     await assert.rejects(db.query("select cash_movement('palatto',-99999,'efectivo','Retiro excesivo','retiro')"), /supera el saldo/)
   })
 
-  await t.test('El cobro completo separa caja principal y aguas y colas', async () => {
+  await t.test('El cobro completo entra a una sola caja y guarda la fecha de pago', async () => {
     await user('mesera')
-    const order = await scalar("select create_order('Mesa 3','',$1::jsonb)", [mixedItems])
+    const order = await scalar("select create_order('Mesa 4','',$1::jsonb)", [mixedItems])
     await db.query("select pay_order($1,1,'efectivo',1000)", [order])
     assert.equal(await scalar('select status from orders where id=$1', [order]), 'completado')
-    assert.deepEqual((await db.query("select business,amount,kind from movements where order_id=$1 order by amount", [order])).rows, [
-      { business: 'carreta', amount: 200, kind: 'cobro' },
-      { business: 'palatto', amount: 700, kind: 'cobro' },
+    assert.ok(await scalar('select paid_at from orders where id=$1', [order]))
+    assert.deepEqual((await db.query("select business,amount,kind from movements where order_id=$1", [order])).rows, [
+      { business: 'palatto', amount: 900, kind: 'cobro' },
     ])
     await assert.rejects(db.query("select pay_order($1,2,'efectivo',1000)", [order]), /ya está cobrado/)
   })
 
-  await t.test('La caja de aguas y colas acepta transferencia', async () => {
-    await user('carreta')
-    await db.query("select cash_movement('carreta',175,'transferencia','Venta por transferencia','ingreso')")
-    assert.equal(await scalar("select amount from movements where business='carreta' and method='transferencia' and order_id is null"), 175)
-  })
-
   await t.test('La cuenta se divide por persona sin crear otro pedido', async () => {
     await user('mesera')
-    const order = await scalar("select create_order('Mesa 4','',$1::jsonb)", [burgerItems])
-    await db.query("select add_split_payment($1,1,'Ana',$2::jsonb,'efectivo',400)", [order, JSON.stringify([{ product_id: burger, quantity: 1 }])])
+    const order = await scalar("select create_order('Mesa 5','',$1::jsonb)", [burgerItems])
+    await db.query("select add_split_payment($1,1,'Ana',$2::jsonb,'efectivo',350)", [order, JSON.stringify([{ product_id: burger, quantity: 1 }])])
     assert.equal(await scalar('select paid from orders where id=$1', [order]), false)
     assert.equal(await scalar('select split_payment from orders where id=$1', [order]), true)
-    await db.query("select add_split_payment($1,2,'Luis',$2::jsonb,'efectivo',400)", [order, JSON.stringify([{ product_id: burger, quantity: 1 }])])
+    await db.query("select add_split_payment($1,2,'Luis',$2::jsonb,'efectivo',350)", [order, JSON.stringify([{ product_id: burger, quantity: 1 }])])
     assert.equal(await scalar('select paid from orders where id=$1', [order]), true)
     assert.equal(await scalar('select status from orders where id=$1', [order]), 'completado')
     assert.equal(await scalar('select count(*)::integer from order_payments where order_id=$1', [order]), 2)
     assert.equal(await scalar('select sum(amount)::integer from movements where order_id=$1', [order]), 700)
-    assert.equal(await scalar('select count(*)::integer from orders'), 4)
+    assert.equal(await scalar("select count(*)::integer from movements where order_id=$1 and business='palatto'", [order]), 2)
   })
 
   await t.test('Un pedido con pagos divididos no se cobra, edita ni elimina por otra vía', async () => {
     await user('mesera')
-    const order = await scalar("select create_order('Mesa 5','',$1::jsonb)", [burgerItems])
-    await db.query("select add_split_payment($1,1,'Ana',$2::jsonb,'efectivo',400)", [order, JSON.stringify([{ product_id: burger, quantity: 1 }])])
+    const order = await scalar("select create_order('Mesa 6','',$1::jsonb)", [burgerItems])
+    await db.query("select add_split_payment($1,1,'Ana',$2::jsonb,'efectivo',350)", [order, JSON.stringify([{ product_id: burger, quantity: 1 }])])
     await assert.rejects(db.query("select pay_order($1,2,'efectivo',400)", [order]), /pagos divididos/)
-    await assert.rejects(db.query("select edit_order($1,2,'Mesa 5','',$2::jsonb,'Cambio',0,null,false)", [order, burgerItems]), /pagos divididos/)
+    await assert.rejects(db.query("select edit_order($1,2,'Mesa 6','',$2::jsonb,'Cambio',0,null,false)", [order, burgerItems]), /pagos parciales|pagos divididos/)
     await assert.rejects(db.query("select delete_order($1,2,'Cliente se fue')", [order]), /cobros registrados|pagos divididos/)
     assert.equal(await scalar('select paid from orders where id=$1', [order]), false)
-  })
-
-  await t.test('Las transferencias entre cajas son solo del superadmin', async () => {
-    const transferId = '20000000-0000-0000-0000-000000000001'
-    for (const role of ['administrador', 'carreta', 'mesera', 'cocinero', 'visualizador'] as const) {
-      await user(role)
-      await assert.rejects(db.query("select transfer_cash($1,'palatto',100,'efectivo','Cambio de caja')", [transferId]), /Solo Superadmin/)
-    }
-    await user('superadmin')
-    const before = await scalar('select sum(amount)::integer from movements')
-    await db.query("select transfer_cash($1,'palatto',100,'efectivo','Cambio de caja')", [transferId])
-    assert.equal(await scalar('select sum(amount)::integer from movements'), before)
-    assert.deepEqual((await db.query('select amount from movements where transfer_id=$1 order by amount', [transferId])).rows, [{ amount: -100 }, { amount: 100 }])
-    await assert.rejects(db.query("select transfer_cash($1,'palatto',100,'efectivo','Cambio de caja')", [transferId]), /ya fue registrada/)
   })
 
   await t.test('El visualizador solo consulta', async () => {
     await user('visualizador')
     assert.ok(Number(await scalar('select count(*)::integer from orders')) > 0)
-    await assert.rejects(db.query("select create_order('Mesa 6','',$1::jsonb)", [mixedItems]), /permiso/)
+    await assert.rejects(db.query("select create_order('Mesa 7','',$1::jsonb)", [mixedItems]), /permiso/)
     await assert.rejects(db.exec('update orders set paid=false'), /permission denied/)
     await assert.rejects(db.exec("update profiles set role='superadmin'"), /permission denied/)
   })
 
   await t.test('Un comprobante es obligatorio para transferencias', async () => {
     await user('mesera')
-    const order = await scalar("select create_order('Mesa 6','',$1::jsonb)", [burgerItems])
+    const order = await scalar("select create_order('Mesa 8','',$1::jsonb)", [burgerItems])
     await assert.rejects(db.query("select pay_order($1,1,'transferencia',0)", [order]), /foto válida/)
   })
 
-  await t.test('El cobro ajusta el total con motivo y reparte proporcionalmente', async () => {
+  await t.test('El cobro ajusta el total sin pedir motivo', async () => {
     await user('mesera')
     const order = await scalar("select create_order('Mesa ajuste','',$1::jsonb)", [mixedItems])
-    await assert.rejects(db.query("select pay_order($1,1,'efectivo',800,null,800,null)", [order]), /motivo del ajuste/)
-    await db.query("select pay_order($1,1,'efectivo',800,null,800,'Descuento acordado')", [order])
-    assert.equal(await scalar('select adjustment from orders where id=$1', [order]), -100)
-    assert.equal(await scalar('select adjustment_reason from orders where id=$1', [order]), 'Descuento acordado')
-    assert.deepEqual((await db.query('select business,amount from movements where order_id=$1 order by amount', [order])).rows, [
-      { business: 'carreta', amount: 178 },
-      { business: 'palatto', amount: 622 },
+    await db.query("select pay_order($1,1,'efectivo',800,null,650)", [order])
+    assert.equal(await scalar('select adjustment from orders where id=$1', [order]), -250)
+    assert.equal(await scalar('select adjustment_reason from orders where id=$1', [order]), null)
+    assert.deepEqual((await db.query('select business,amount from movements where order_id=$1', [order])).rows, [
+      { business: 'palatto', amount: 650 },
     ])
-    assert.equal(await scalar('select sum(amount)::integer from movements where order_id=$1', [order]), 800)
   })
 
-  await t.test('El cobro acepta un recargo y mantiene el reparto', async () => {
+  await t.test('El cobro acepta un recargo y guarda el comprobante', async () => {
     await user('mesera')
     const order = await scalar("select create_order('Mesa recargo','',$1::jsonb)", [mixedItems])
     const receipt = `${ids.mesera}/comprobante-recargo.jpg`
     await db.query("insert into storage.objects(bucket_id,name) values('receipts',$1)", [receipt])
-    await db.query("select pay_order($1,1,'transferencia',0,$2,950,'Servicio adicional')", [order, receipt])
+    await db.query("select pay_order($1,1,'transferencia',0,$2,950)", [order, receipt])
     assert.equal(await scalar('select adjustment from orders where id=$1', [order]), 50)
-    assert.deepEqual((await db.query('select business,amount from movements where order_id=$1 order by amount', [order])).rows, [
-      { business: 'carreta', amount: 211 },
-      { business: 'palatto', amount: 739 },
+    assert.deepEqual((await db.query('select business,amount from movements where order_id=$1', [order])).rows, [
+      { business: 'palatto', amount: 950 },
     ])
   })
 })

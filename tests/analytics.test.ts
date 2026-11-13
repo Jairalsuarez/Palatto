@@ -55,6 +55,7 @@ test('Analítica: ventas, negocios, medios de pago, productos y picos por hora',
   const today = analyze(orders, products, 'hoy', new Date('2026-11-12T04:00:00Z'))
   assert.equal(today.orders, 3)
   assert.equal(today.revenue, 700 * 2 + 200 + 750 + 200 * 3)
+  assert.equal(today.drinksRevenue, 200 + 200 * 3)
   assert.equal(today.itemsSold, 7)
   assert.equal(today.averageTicket, Math.round(today.revenue / 3))
   assert.deepEqual(today.byBusiness.palatto, { revenue: 2150, orders: 2, items: 3 })
@@ -75,7 +76,7 @@ test('Analítica: ventas, negocios, medios de pago, productos y picos por hora',
 test('Analítica: la venta cuenta el día y la hora en que se cobró', () => {
   const late = order('2026-11-12T04:30:00Z', [item(products[0], 1)]) // 23:30 del 11
   const paidAt = paymentTimes([
-    { id: 'm1', business: 'palatto', amount: 700, method: 'efectivo', reason: 'Cobro de pedido', order_id: late.id, created_at: '2026-11-12T05:30:00Z' }, // 00:30 del 12
+    { id: 'm1', business: 'palatto', amount: 700, method: 'efectivo', reason: 'Cobro de pedido', kind: 'cobro', order_id: late.id, created_at: '2026-11-12T05:30:00Z' }, // 00:30 del 12
   ])
   const now = new Date('2026-11-12T18:00:00Z')
   assert.equal(analyze([late], products, 'hoy', now).orders, 0)
@@ -86,18 +87,17 @@ test('Analítica: la venta cuenta el día y la hora en que se cobró', () => {
   assert.equal(dailyTrend([late], 2, now, paidAt)[0].revenue, 0)
 })
 
-test('Analítica: el total ajustado se refleja en ventas, cajas y CSV', () => {
+test('Analítica: el total ajustado se refleja en ventas y CSV sin motivo obligatorio', () => {
   const adjusted = order('2026-11-11T15:10:00Z', [item(products[0], 2), item(products[1], 1)])
   adjusted.adjustment = -100
-  adjusted.adjustment_reason = 'Descuento acordado'
   const today = analyze([adjusted], products, 'hoy', new Date('2026-11-12T04:00:00Z'))
   assert.equal(today.revenue, 1500)
+  assert.equal(today.drinksRevenue, 200)
   assert.deepEqual(today.byBusiness.palatto, { revenue: 1313, orders: 1, items: 2 })
   assert.deepEqual(today.byBusiness.carreta, { revenue: 187, orders: 1, items: 1 })
   assert.equal(today.byHour[10].revenue, 1500)
   const csv = salesCsv([adjusted], products, 'hoy', new Date('2026-11-11T18:00:00Z'))
   assert.match(csv, /Ajuste de total/)
-  assert.match(csv, /Descuento acordado/)
   assert.match(csv, /"-1.00"/)
 })
 

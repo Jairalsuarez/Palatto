@@ -45,6 +45,7 @@ export interface SupplyPurchase {
   created_at: string
   paid_at: string | null
   received_at: string | null
+  receipt?: string | null
 }
 
 export interface SupplyPurchaseInput {
@@ -56,6 +57,7 @@ export interface SupplyPurchaseInput {
   paid: boolean
   payment_method: 'efectivo' | 'transferencia' | null
   received: boolean
+  receipt?: string | null
 }
 
 export interface SupplyInput {
@@ -312,6 +314,7 @@ export function useInventory(profile: Profile | null, role: Role) {
         const { error: rpcError } = await supabase.rpc('register_supply_purchase', {
           p_supply: supplyId, p_quantity: input.quantity, p_unit_cost: input.unit_cost,
           p_supplier: input.supplier.trim(), p_paid: input.paid, p_method: input.payment_method, p_received: input.received,
+          p_receipt: input.receipt || null,
         })
         if (rpcError) throw rpcError
       } else {
@@ -342,7 +345,7 @@ export function useInventory(profile: Profile | null, role: Role) {
           const stockMovement: SupplyMovement = { id: crypto.randomUUID(), supply_id: input.supply_id, kind: 'entrada', quantity: input.quantity, reason: `Compra recibida · ${input.supplier || supply.name}`, actor: profile?.id || '', created_at: now }
           writeLocal(MOVEMENT_KEY, [stockMovement, ...readLocal<SupplyMovement[]>(MOVEMENT_KEY, [])].slice(0, 500))
         }
-        const purchase: SupplyPurchase = { ...input, id: crypto.randomUUID(), supplier: input.supplier.trim(), unit_cost: input.unit_cost, total_amount: totalAmount, created_by: profile?.id || '', created_at: now, paid_at: input.paid ? now : null, received_at: input.received ? now : null }
+        const purchase: SupplyPurchase = { ...input, id: crypto.randomUUID(), supplier: input.supplier.trim(), unit_cost: input.unit_cost, total_amount: totalAmount, created_by: profile?.id || '', created_at: now, paid_at: input.paid ? now : null, received_at: input.received ? now : null, receipt: input.receipt || null }
         writeLocal(PURCHASE_KEY, [purchase, ...readLocal<SupplyPurchase[]>(PURCHASE_KEY, [])].slice(0, 300))
       }
       void notifyActivity('supply_purchase_created')

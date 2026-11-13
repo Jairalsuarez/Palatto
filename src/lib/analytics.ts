@@ -1,4 +1,4 @@
-import { orderSplit, orderTotal } from './domain'
+import { itemIsDrink, itemTotal, orderSplit, orderTotal } from './domain'
 import type { Business, Method, Movement, Order, OrderPayment, Product } from './domain'
 
 export type RangeKey = 'hoy' | 'ayer' | '7d' | 'quincena' | 'mes' | 'todo'
@@ -62,19 +62,19 @@ export function rangeDays(range: RangeKey, now = new Date()): string[] {
   return []
 }
 
-/** First ledger movement per order is when the customer paid. */
+/** Last ledger entry for a paid order is when the account was fully settled. */
 export function paymentTimes(movements: Movement[]): Map<string, string> {
   const times = new Map<string, string>()
   for (const movement of movements) {
-    if (!movement.order_id) continue
+    if (!movement.order_id || movement.kind !== 'cobro') continue
     const current = times.get(movement.order_id)
-    if (!current || movement.created_at < current) times.set(movement.order_id, movement.created_at)
+    if (!current || movement.created_at > current) times.set(movement.order_id, movement.created_at)
   }
   return times
 }
 
 export function paidDate(order: Order, paidAt?: Map<string, string>): string {
-  return paidAt?.get(order.id) || order.created_at
+  return order.paid_at || paidAt?.get(order.id) || order.created_at
 }
 
 export function ordersInRange(orders: Order[], range: RangeKey, now = new Date(), paidAt?: Map<string, string>): Order[] {
@@ -119,6 +119,7 @@ export interface DailySales {
 export interface Analytics {
   orders: number
   revenue: number
+  drinksRevenue: number
   itemsSold: number
   averageTicket: number
   byBusiness: Record<Business, BusinessSales>
@@ -152,6 +153,7 @@ export function analyze(orders: Order[], products: Product[], range: RangeKey, n
   const productMap = new Map<string, ProductSales>()
   const categoryMap = new Map<string, { category: string; quantity: number; revenue: number }>()
   let revenue = 0
+  let drinksRevenue = 0
   let itemsSold = 0
 
   for (const order of selected) {
@@ -173,10 +175,11 @@ export function analyze(orders: Order[], products: Product[], range: RangeKey, n
     byHour[hour].orders += 1
     const seenBusinesses = new Set<Business>()
     for (const item of order.items) {
-      const lineRevenue = item.price * item.quantity
+      const lineRevenue = itemTotal(item)
       itemsSold += item.quantity
       byBusiness[item.business].items += item.quantity
       seenBusinesses.add(item.business)
+      if (itemIsDrink(item)) drinksRevenue += lineRevenue
 
       const category = categoryByProduct.get(item.product_id) || 'Otros'
       const productRow = productMap.get(item.product_id) || {
@@ -212,6 +215,7 @@ export function analyze(orders: Order[], products: Product[], range: RangeKey, n
   return {
     orders: selected.length,
     revenue,
+    drinksRevenue,
     itemsSold,
     averageTicket: selected.length ? Math.round(revenue / selected.length) : 0,
     byBusiness,
@@ -258,12 +262,12 @@ export function salesCsv(orders: Order[], products: Product[], range: RangeKey, 
         time,
         String(order.number),
         order.customer,
-        item.business === 'palatto' ? 'Palatto' : 'Aguas y colas',
+        itemIsDrink(item) ? 'Aguas y colas' : 'Palatto',
         categoryByProduct.get(item.product_id) || 'Otros',
         item.name,
         String(item.quantity),
         (item.price / 100).toFixed(2),
-        ((item.price * item.quantity) / 100).toFixed(2),
+        (itemTotal(item) / 100).toFixed(2),
         splitOrders.has(order.id) ? 'Dividido' : order.method === 'transferencia' ? 'Transferencia' : 'Efectivo',
       ])
     }
@@ -275,7 +279,7 @@ export function salesCsv(orders: Order[], products: Product[], range: RangeKey, 
         order.customer,
         'Ajuste',
         'Ajuste de total',
-        order.adjustment_reason ? `Ajuste: ${order.adjustment_reason}` : 'Ajuste de total',
+        'Ajuste de total',
         '1',
         (order.adjustment / 100).toFixed(2),
         (order.adjustment / 100).toFixed(2),

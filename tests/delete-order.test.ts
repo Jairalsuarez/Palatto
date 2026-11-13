@@ -46,7 +46,7 @@ test('Eliminar pedidos: permisos, motivo y rastro', async t => {
   }
 
   await user('superadmin')
-  await db.query("select save_product($1,'Hamburguesa',350,'palatto','Comida',true)", [burger])
+  await db.query("select save_product($1,'Hamburguesa',350,true,false,null,25)", [burger])
 
   await user('mesera')
   const order = await scalar("select create_order('Mesa 9','',$1::jsonb)", [items])
@@ -87,5 +87,16 @@ test('Eliminar pedidos: permisos, motivo y rastro', async t => {
     assert.equal(await scalar('select count(*)::integer from orders'), 1)
     await user('superadmin')
     assert.equal(await scalar('select count(*)::integer from deleted_orders'), 1)
+  })
+
+  await t.test('El histórico de eliminados conserva la tarifa para llevar', async () => {
+    await user('mesera')
+    const takeaway = await scalar("select create_order('Con tarifa','',$1::jsonb)", [
+      JSON.stringify([{ product_id: burger, quantity: 2, takeaway_quantity: 2 }]),
+    ])
+    await db.query("select delete_order($1,1,'Pedido cancelado con tarifa')", [takeaway])
+    await user('superadmin')
+    assert.equal(await scalar("select total from deleted_orders where customer='Con tarifa'"), 750)
+    assert.equal(await scalar('select count(*)::integer from deleted_orders'), 2)
   })
 })

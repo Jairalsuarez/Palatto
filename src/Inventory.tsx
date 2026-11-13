@@ -1,5 +1,5 @@
 import { useMemo, useState } from 'react'
-import { Check, Plus } from 'lucide-react'
+import { Check, Plus, Receipt } from 'lucide-react'
 import { Modal } from './Modal'
 import type { FormEvent } from 'react'
 import type { Restaurant } from './lib/useRestaurant'
@@ -7,25 +7,40 @@ import { canWrite, cents, money } from './lib/domain'
 import { useInventory } from './lib/inventory'
 import type { Supply, SupplyPurchaseInput } from './lib/inventory'
 
-function AddSupplyExpense({ supplies, onSave, close }: { supplies: Supply[]; onSave: (input: SupplyPurchaseInput) => Promise<boolean>; close: () => void }) {
+function AddSupplyExpense({ app, supplies, onSave, close }: { app: Restaurant; supplies: Supply[]; onSave: (input: SupplyPurchaseInput) => Promise<boolean>; close: () => void }) {
   const [name, setName] = useState('')
   const [amount, setAmount] = useState('')
   const [paid, setPaid] = useState(false)
   const [method, setMethod] = useState<'efectivo' | 'transferencia'>('efectivo')
+  const [receipt, setReceipt] = useState<string | null>(null)
+  const [uploading, setUploading] = useState(false)
   const value = cents(amount)
   const supply = supplies.find(item => item.name.toLocaleLowerCase() === name.trim().toLocaleLowerCase() && item.active)
   return <Modal title="Agregar insumo" close={close}>
     <form className="form-stack" onSubmit={async (event: FormEvent) => {
       event.preventDefault()
       if (value <= 0 || !name.trim()) return
-      if (await onSave({ supply_id: supply?.id || '', supply_name: name.trim(), quantity: 1, unit_cost: value, supplier: '', paid, payment_method: paid ? method : null, received: false })) close()
+      if (await onSave({ supply_id: supply?.id || '', supply_name: name.trim(), quantity: 1, unit_cost: value, supplier: '', paid, payment_method: paid ? method : null, received: false, receipt })) close()
     }}>
       <label>Título<input autoFocus required maxLength={120} list="supply-name-options" value={name} onChange={event => setName(event.target.value)} placeholder="Ej. Papa"/></label>
       <datalist id="supply-name-options">{supplies.filter(item => item.active).map(item => <option key={item.id} value={item.name}/>)}</datalist>
       <label>Valor ($)<input required type="number" inputMode="decimal" min="0.01" step="0.01" value={amount} onChange={event => setAmount(event.target.value)} placeholder="0.00"/></label>
       {paid && <label>Se pagó con<select value={method} onChange={event => setMethod(event.target.value as 'efectivo' | 'transferencia')}><option value="efectivo">Efectivo</option><option value="transferencia">Transferencia</option></select></label>}
+      <label className={receipt ? 'upload-box done' : 'upload-box'}>
+        {receipt ? <><Check size={20}/><strong>Factura lista</strong><span>Toca para cambiarla</span></> : <><Receipt size={20}/><strong>Subir factura</strong><span>Opcional · foto o archivo</span></>}
+        <input type="file" accept="image/jpeg,image/png,image/webp" disabled={uploading} aria-label="Factura de la compra"
+          onChange={async event => {
+            const file = event.target.files?.[0]
+            if (!file) return
+            setUploading(true)
+            try { setReceipt(await app.upload(file)) }
+            catch (error) { app.setError(error instanceof Error ? error.message : 'No se pudo subir la factura.') }
+            finally { setUploading(false) }
+          }}/>
+      </label>
+      {uploading && <p className="tiny center">Subiendo factura…</p>}
       <label className="check-row"><input type="checkbox" checked={paid} onChange={event => setPaid(event.target.checked)}/>Ya está pagado</label>
-      <button className="btn btn-primary btn-block" disabled={!name.trim() || value <= 0}>Guardar insumo<Check size={18}/></button>
+      <button className="btn btn-primary btn-block" disabled={!name.trim() || value <= 0 || uploading}>Guardar insumo<Check size={18}/></button>
     </form>
   </Modal>
 }
@@ -35,6 +50,7 @@ export function Inventory({ app }: { app: Restaurant }) {
   const [adding, setAdding] = useState(false)
   const [paymentMethod, setPaymentMethod] = useState<Record<string, 'efectivo' | 'transferencia'>>({})
   const [confirmPending, setConfirmPending] = useState<string | null>(null)
+  const [viewReceipt, setViewReceipt] = useState<string | null>(null)
   const canEdit = canWrite(app.role)
   const supplyById = useMemo(() => new Map(inventory.supplies.map(supply => [supply.id, supply])), [inventory.supplies])
   const paid = inventory.purchases.filter(item => item.paid)
@@ -57,6 +73,9 @@ export function Inventory({ app }: { app: Restaurant }) {
         return <article className="simple-supply-row" key={item.id}>
           <div className="simple-supply-info"><strong>{name}</strong><small>{new Date(item.created_at).toLocaleDateString('es-EC', { day: 'numeric', month: 'short', year: 'numeric' })}</small></div>
           <strong className="simple-supply-amount">{money(item.total_amount)}</strong>
+          {item.receipt && <button type="button" className="movement-receipt" onClick={async () => {
+            try { setViewReceipt(await app.receiptUrl(item.receipt!)) } catch (error) { app.setError((error as Error).message) }
+          }}>Factura</button>}
           <div className="simple-supply-status"><span className={item.paid ? 'purchase-paid' : 'purchase-pending'}>{item.paid ? 'Pagado' : 'Pendiente'}</span>
             {canEdit && (item.paid
               ? <button className="paid-switch is-paid" type="button" disabled={inventory.busy} role="switch" aria-checked="true" aria-label={`Cambiar ${name} a pendiente`} onClick={() => setConfirmPending(item.id)}><span/></button>
@@ -67,7 +86,8 @@ export function Inventory({ app }: { app: Restaurant }) {
       })}
     </section>
     {paidBySupply.size > 0 && <section className="simple-spend-breakdown"><h2>Gastado por insumo</h2>{[...paidBySupply.entries()].sort((a,b)=>b[1]-a[1]).map(([id,total])=><div key={id}><span>{supplyById.get(id)?.name || 'Insumo'}</span><strong>{money(total)}</strong></div>)}</section>}
-    {adding && <AddSupplyExpense supplies={inventory.supplies} onSave={inventory.registerPurchase} close={() => setAdding(false)}/>}
+    {adding && <AddSupplyExpense app={app} supplies={inventory.supplies} onSave={inventory.registerPurchase} close={() => setAdding(false)}/>}
+    {viewReceipt && <Modal title="Factura de la compra" close={() => setViewReceipt(null)}><img className="receipt-image" src={viewReceipt} alt="Factura de la compra"/></Modal>}
     {confirmPending && <Modal title="¿Cambiar a pendiente?" close={() => setConfirmPending(null)}><div className="form-stack"><p>Este gasto se quitará del total pagado y se revertirá en caja. ¿Estás de acuerdo?</p><div className="form-actions"><button className="btn btn-ghost" onClick={() => setConfirmPending(null)}>Cancelar</button><button className="btn btn-primary" disabled={inventory.busy} onClick={async () => { const ok = await inventory.updatePurchase(confirmPending, 'unpaid'); if (ok) setConfirmPending(null) }}><Check size={17}/>Sí, dejar pendiente</button></div></div></Modal>}
   </>
 }
