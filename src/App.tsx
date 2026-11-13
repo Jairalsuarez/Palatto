@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import type { FormEvent, ReactNode } from 'react'
 import {
   ArrowDownLeft, ArrowRight, ArrowUpRight, Banknote, BarChart3, Bell, BookOpen, Check, CheckCheck,
@@ -66,6 +66,43 @@ export default function App() {
   const [detail, setDetail] = useState<string | null>(null)
   const [payRequest, setPayRequest] = useState<string | null>(null)
   const [history, setHistory] = useState<Route[]>([])
+  const historyInitialized = useRef(false)
+
+  useEffect(() => {
+    if (historyInitialized.current) return
+    historyInitialized.current = true
+    window.history.pushState({ palatto: true }, '', window.location.href)
+    window.history.pushState({ palatto: true }, '', window.location.href)
+  }, [])
+
+  useEffect(() => {
+    function onPopState() {
+      if (history.length) {
+        const previous = history[history.length - 1]
+        setHistory(current => current.slice(0, -1))
+        setPage(previous.page)
+        setCashBusiness(previous.page === 'cajas' ? (previous.cashBusiness ?? 'palatto') : null)
+        setEditing(undefined)
+        setPayRequest(null)
+        app.setError('')
+        return
+      }
+
+      const wantsHome = window.confirm('¿Quieres salir de Palatto? La aplicación permanecerá abierta en Inicio.')
+      if (wantsHome) {
+        setPage('pedidos')
+        setCashBusiness(null)
+        setEditing(undefined)
+        setDetail(null)
+        setPayRequest(null)
+        app.setError('')
+      }
+      window.history.pushState({ palatto: true }, '', window.location.href)
+    }
+
+    window.addEventListener('popstate', onPopState)
+    return () => window.removeEventListener('popstate', onPopState)
+  }, [app.setError, history])
 
   useEffect(() => {
     const onInstall = (event: Event) => { event.preventDefault(); setInstallPrompt(event) }
@@ -95,6 +132,7 @@ export default function App() {
 
   function pushCurrent() {
     setHistory(current => [...current, { page, cashBusiness }])
+    window.history.pushState({ palatto: true }, '', window.location.href)
   }
   function go(next: Page, cash: Business | null = next === 'cajas' ? 'palatto' : null) {
     if (page !== next || cashBusiness !== cash) pushCurrent()
@@ -108,13 +146,7 @@ export default function App() {
     go(next)
   }
   function back() {
-    const previous = history[history.length - 1]
-    setHistory(current => current.slice(0, -1))
-    setPage(previous?.page ?? 'pedidos')
-    setCashBusiness(previous?.page === 'cajas' ? (previous.cashBusiness ?? 'palatto') : null)
-    setEditing(undefined)
-    setPayRequest(null)
-    app.setError('')
+    window.history.back()
   }
   function edit(order: Order) {
     if (page !== 'nuevo') pushCurrent()
@@ -272,53 +304,28 @@ function Home({ app, detail, setDetail, payRequest, payHandled, onNew, onReport,
 }
 
 function SalesHero({ app, onReport, onSummary, onCash }: { app: Restaurant; onReport: () => void; onSummary: () => void; onCash: (business: Business) => void }) {
-  const summary = analyze(app.data.orders, app.data.products, 'hoy', new Date(), paymentTimes(app.data.movements))
-  const todayKey = dayKey(new Date())
-  const todayMovements = app.data.movements.filter(movement => dayKey(movement.created_at) === todayKey)
   const balance = app.data.movements.reduce((sum, movement) => sum + movement.amount, 0)
-  const expenses = todayMovements
-    .filter(movement => movement.kind === 'gasto')
-    .reduce((sum, movement) => sum + Math.abs(movement.amount), 0)
-  const mood = expenses > 0 ? summary.revenue / expenses : summary.revenue > 0 ? 1 : 0
-  const cash = summary.byMethod.efectivo
-  const transfer = summary.byMethod.transferencia
+  const cash = app.data.movements.filter(movement => movement.method === 'efectivo').reduce((sum, movement) => sum + movement.amount, 0)
+  const transfer = app.data.movements.filter(movement => movement.method === 'transferencia').reduce((sum, movement) => sum + movement.amount, 0)
 
-  return <section className="sales-hero" aria-label="Caja y ventas del día">
+  return <section className="sales-hero" aria-label="Saldo de caja por medio de pago">
     <div className="sales-hero-top">
       <span className="eyebrow">Caja</span>
       <div className="sales-hero-links"><button className="hero-link" onClick={onSummary}>Resumen del día<ArrowRight size={15}/></button><button className="hero-link" onClick={onReport}>Reportes<ArrowUpRight size={15}/></button></div>
     </div>
     <button className="hero-balance" onClick={() => onCash('palatto')} aria-label="Abrir la caja">
       <strong className="hero-amount">{money(balance)}</strong>
-      <span className="hero-caption">Total en caja · Vendido hoy {money(summary.revenue)} <ArrowUpRight size={13}/></span>
-      <span className="hero-mood"><MoodFace score={mood}/></span>
+      <span className="hero-caption">Saldo total</span>
     </button>
     <div className="hero-day hero-day-methods">
-      <button className="hero-method" onClick={() => onCash('palatto')} aria-label="Ver caja, cobros en efectivo">
-        <span className="hero-method-icon"><Banknote size={18}/></span>
-        <span className="hero-method-copy"><small>Efectivo hoy</small><strong>{money(cash.revenue)}</strong><em>{cash.orders} {cash.orders === 1 ? 'pedido' : 'pedidos'}</em></span>
-        <ArrowUpRight size={15}/>
+      <button className="hero-method" onClick={() => onCash('palatto')} aria-label="Ver saldo total en efectivo">
+        <span className="hero-method-copy"><small>Efectivo</small><strong>{money(cash)}</strong></span>
       </button>
-      <button className="hero-method" onClick={() => onCash('palatto')} aria-label="Ver caja, cobros por transferencia">
-        <span className="hero-method-icon"><CreditCard size={18}/></span>
-        <span className="hero-method-copy"><small>Transferencia hoy</small><strong>{money(transfer.revenue)}</strong><em>{transfer.orders} {transfer.orders === 1 ? 'pedido' : 'pedidos'}</em></span>
-        <ArrowUpRight size={15}/>
+      <button className="hero-method" onClick={() => onCash('palatto')} aria-label="Ver saldo total por transferencia">
+        <span className="hero-method-copy"><small>Transferencia</small><strong>{money(transfer)}</strong></span>
       </button>
     </div>
   </section>
-}
-
-function MoodFace({ score }: { score: number }) {
-  const mood = Math.max(0, Math.min(1, score))
-  const mouth = 33 + 14 * mood
-  const color = `hsl(${12 + 129 * mood} 58% 46%)`
-  const label = mood >= 0.75 ? 'Vamos bien' : mood >= 0.4 ? 'Vamos avanzando' : 'A remontar'
-  return <svg className="mood-face" viewBox="0 0 64 64" role="img" aria-label={`Ánimo de ventas: ${label}`}>
-    <circle cx="32" cy="32" r="27" fill="rgb(255 248 238 / 7%)" stroke={color} strokeWidth="2.5"/>
-    <circle cx="24" cy="26" r="2.7" fill={color}/>
-    <circle cx="40" cy="26" r="2.7" fill={color}/>
-    <path d={`M22 41 Q32 ${mouth} 42 41`} fill="none" stroke={color} strokeWidth="3.2" strokeLinecap="round"/>
-  </svg>
 }
 
 function OrderDetail({ app, order, close, pay, split, edit, showReceipt }: { app: Restaurant; order: Order; close: () => void; pay: () => void; split: () => void; edit: () => void; showReceipt: (path: string) => void }) {
