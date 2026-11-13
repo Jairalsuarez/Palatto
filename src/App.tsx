@@ -923,6 +923,7 @@ function DailyReport({ app }: { app: Restaurant }) {
 }
 
 function DailySummary({ app, onCash }: { app: Restaurant; onCash: (business: Business) => void }) {
+  const [confirmDrinksWithdrawal, setConfirmDrinksWithdrawal] = useState(false)
   const now = new Date()
   const summary = analyze(app.data.orders, app.data.products, 'hoy', now, paymentTimes(app.data.movements), app.data.order_payments)
   const todayKey = reportDate(now.toISOString())
@@ -937,20 +938,33 @@ function DailySummary({ app, onCash }: { app: Restaurant; onCash: (business: Bus
   const cashBalance = app.data.movements.reduce((value, movement) => value + movement.amount, 0)
   const balanceByMethod = (method: Method) => app.data.movements.filter(movement => movement.method === method).reduce((value, movement) => value + movement.amount, 0)
   const chartMax = Math.max(summary.revenue, expenses, cashBalance, 1)
+  const drinksCanBeWithdrawn = drinksCashPending > 0 && drinksCashBalance >= drinksCashPending
+  async function withdrawDrinksCash() {
+    const success = await app.cash('carreta', -drinksCashPending, 'efectivo', drinksWithdrawalReason, 'retiro')
+    if (success) setConfirmDrinksWithdrawal(false)
+  }
   return <div className="daily-summary-page">
     <div className="page-heading"><div><p className="eyebrow">Palatto · {new Date(todayKey + 'T12:00:00').toLocaleDateString('es-EC', { weekday: 'long', day: 'numeric', month: 'long' })}</p><h1>Resumen del día</h1></div></div>
     <div className="daily-summary-grid">
       <article className="daily-summary-stat sales"><small>Vendido hoy</small><strong>{money(summary.revenue)}</strong><span>Confirmado al cobrar</span></article>
       <article className="daily-summary-stat orders"><small>Pedidos cobrados</small><strong>{summary.orders}</strong><span>En el día</span></article>
-      <article className="daily-summary-stat drinks"><small>Aguas y colas · efectivo</small><strong>{money(drinksCashPending)}</strong><span>Efectivo cobrado hoy pendiente de retirar. Las transferencias permanecen en su saldo.</span>
-        {canCash(app.role, 'carreta')
-          ? <button className="btn btn-ghost btn-sm" disabled={!drinksCashPending || app.busy || drinksCashBalance < drinksCashPending} onClick={() => void app.cash('carreta', -drinksCashPending, 'efectivo', drinksWithdrawalReason, 'retiro')}>
-              <ArrowDownLeft size={16}/>{drinksCashBalance < drinksCashPending ? 'Efectivo insuficiente en la caja' : `Retirar de caja ${money(drinksCashPending)}`}
-            </button>
-          : <span>Solo administración puede retirar de caja.</span>}
-      </article>
+      {canCash(app.role, 'carreta')
+        ? <button type="button" className="daily-summary-stat drinks drinks-button" disabled={!drinksCanBeWithdrawn || app.busy} onClick={() => setConfirmDrinksWithdrawal(true)} aria-label={`Retirar ${money(drinksCashPending)} en efectivo de la caja de aguas y colas`}>
+            <small>Aguas y colas</small><strong>{money(drinksCashPending)}</strong><span>{drinksCashBalance < drinksCashPending ? 'Efectivo insuficiente en la caja' : 'Efectivo cobrado hoy pendiente de retirar'}</span>
+            <ArrowDownLeft className="drinks-action-indicator" size={16}/>
+          </button>
+        : <article className="daily-summary-stat drinks"><small>Aguas y colas</small><strong>{money(drinksCashPending)}</strong><span>Efectivo cobrado hoy pendiente de retirar</span></article>}
       <article className="daily-summary-stat cash"><small>Saldo en caja</small><strong>{money(cashBalance)}</strong><span>Efectivo y transferencias</span></article>
     </div>
+    {confirmDrinksWithdrawal && <Modal title="Retirar de caja" close={() => setConfirmDrinksWithdrawal(false)}>
+      <div className="dialog-body form-stack">
+        <p>¿Quieres retirar {money(drinksCashPending)} en efectivo de la caja de aguas y colas?</p>
+        <div className="editor-foot-actions">
+          <button type="button" className="btn btn-ghost" disabled={app.busy} onClick={() => setConfirmDrinksWithdrawal(false)}>Cancelar</button>
+          <button type="button" className="btn btn-primary" disabled={app.busy} onClick={() => void withdrawDrinksCash()}>{app.busy ? 'Retirando…' : 'Sí, retirar'}</button>
+        </div>
+      </div>
+    </Modal>}
     <section className="summary-payment-breakdown" aria-label="Desglose de efectivo y transferencias">
       <div><h2>Cobros de hoy</h2><p><span><Banknote size={16}/>Efectivo</span><b>{money(summary.byMethod.efectivo.revenue)}</b></p><p><span><CreditCard size={16}/>Transferencias</span><b>{money(summary.byMethod.transferencia.revenue)}</b></p>
         <small>{summary.byMethod.efectivo.orders} {summary.byMethod.efectivo.orders === 1 ? 'pedido' : 'pedidos'} en efectivo · {summary.byMethod.transferencia.orders} por transferencia.</small>
