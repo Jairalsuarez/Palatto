@@ -376,9 +376,10 @@ function DrinksSalesPage({ app, back }: { app: Restaurant; back: () => void }) {
 }
 
 function SalesHero({ app, onDrinks, onSummary, onCash }: { app: Restaurant; onDrinks: () => void; onSummary: () => void; onCash: (business: Business) => void }) {
-  const balance = app.data.movements.reduce((sum, movement) => sum + movement.amount, 0)
-  const cash = app.data.movements.filter(movement => movement.method === 'efectivo').reduce((sum, movement) => sum + movement.amount, 0)
-  const transfer = app.data.movements.filter(movement => movement.method === 'transferencia').reduce((sum, movement) => sum + movement.amount, 0)
+  const mainCashMovements = app.data.movements.filter(movement => movement.business === 'palatto')
+  const balance = mainCashMovements.reduce((sum, movement) => sum + movement.amount, 0)
+  const cash = mainCashMovements.filter(movement => movement.method === 'efectivo').reduce((sum, movement) => sum + movement.amount, 0)
+  const transfer = mainCashMovements.filter(movement => movement.method === 'transferencia').reduce((sum, movement) => sum + movement.amount, 0)
 
   return <section className="sales-hero" aria-label="Saldo de caja por medio de pago">
     <div className="sales-hero-top">
@@ -887,7 +888,8 @@ function Cash({ app, back, business = 'palatto' }: { app: Restaurant; back: () =
   const [receipt, setReceipt] = useState<string | null>(null)
   const [viewReceipt, setViewReceipt] = useState<string | null>(null)
 
-  const movements = app.data.movements.filter(movement => movement.business === business).sort((a, b) => b.created_at.localeCompare(a.created_at))
+  const cashOnly = business === 'carreta'
+  const movements = app.data.movements.filter(movement => movement.business === business && (!cashOnly || movement.method === 'efectivo')).sort((a, b) => b.created_at.localeCompare(a.created_at))
   const balance = (method: Method) => movements.filter(movement => movement.method === method).reduce((sum, movement) => sum + movement.amount, 0)
 
   function closeForm() {
@@ -914,10 +916,10 @@ function Cash({ app, back, business = 'palatto' }: { app: Restaurant; back: () =
 
     <section className="balance-card">
       <div className="balance-top"><span>Saldo total</span><span className="balance-state">Disponible</span></div>
-      <strong>{money(balance('efectivo') + balance('transferencia'))}</strong>
-      <div className="balance-split">
+      <strong>{money(cashOnly ? balance('efectivo') : balance('efectivo') + balance('transferencia'))}</strong>
+      <div className={`balance-split ${cashOnly ? 'balance-split-cash-only' : ''}`}>
         <span><Banknote size={16}/>Efectivo<b>{money(balance('efectivo'))}</b></span>
-        <span><CreditCard size={16}/>Transferencias<b>{money(balance('transferencia'))}</b></span>
+        {!cashOnly && <span><CreditCard size={16}/>Transferencias<b>{money(balance('transferencia'))}</b></span>}
       </div>
     </section>
 
@@ -938,7 +940,7 @@ function Cash({ app, back, business = 'palatto' }: { app: Restaurant; back: () =
         : <ul className="movement-list">
             {movements.map(movement => <li className="movement" key={movement.id}>
               <span className={`movement-icon ${movement.amount < 0 ? 'out' : ''}`}>{movement.amount < 0 ? <ArrowUpRight size={18}/> : <ArrowRight size={18}/>}</span>
-              <div><strong>{movement.reason}</strong><small>{movementKindLabel(movement.kind)} · {dateTime(movement.created_at)} · {movement.method === 'efectivo' ? 'Efectivo' : 'Transferencia'}</small></div>
+              <div><strong>{movement.reason}</strong><small>{movementKindLabel(movement.kind)} · {dateTime(movement.created_at)}{cashOnly ? ' · Efectivo' : ` · ${movement.method === 'efectivo' ? 'Efectivo' : 'Transferencia'}`}</small></div>
               {movement.receipt && <button type="button" className="movement-receipt" onClick={() => void showReceipt(movement.receipt!)}>Factura</button>}
               <b className={movement.amount < 0 ? 'negative' : 'positive'}>{movement.amount > 0 ? '+' : '−'}{money(Math.abs(movement.amount))}</b>
             </li>)}
@@ -954,10 +956,10 @@ function Cash({ app, back, business = 'palatto' }: { app: Restaurant; back: () =
       }}>
         {form === 'gasto' && <p className="alert alert-info">Un gasto es una salida para comprar algo. Un retiro es sacar dinero del negocio.</p>}
         <label>Importe ($)<input type="number" inputMode="decimal" step="0.01" min="0.01" max="1000000" required value={amount} onChange={event => setAmount(event.target.value)} placeholder="0.00" autoFocus/></label>
-        <label>Medio<select value={method} onChange={event => setMethod(event.target.value as Method)}>
+        {!cashOnly && <label>Medio<select value={method} onChange={event => setMethod(event.target.value as Method)}>
           <option value="efectivo">Efectivo</option>
           <option value="transferencia">Transferencia</option>
-        </select></label>
+        </select></label>}
         <label>Motivo<textarea rows={2} required minLength={3} maxLength={450} value={reason} onChange={event => setReason(event.target.value)} placeholder={form === 'ingreso' ? 'Fondo para dar suelto' : form === 'gasto' ? 'Compra de hielo, proveedor…' : 'Retiro del dueño'}/></label>
         {form === 'gasto' && <ReceiptUpload app={app} value={receipt} onChange={setReceipt} title="Subir factura" hint="Opcional · foto o archivo JPG, PNG o WebP"/>}
         {app.error && <p className="alert alert-error" role="alert">{app.error}</p>}
@@ -976,12 +978,13 @@ function Cash({ app, back, business = 'palatto' }: { app: Restaurant; back: () =
 const reportDate = (value: string) => new Intl.DateTimeFormat('en-CA', { timeZone: 'America/Guayaquil', year: 'numeric', month: '2-digit', day: '2-digit' }).format(new Date(value))
 function DailyReport({ app, business = 'palatto' }: { app: Restaurant; business?: Business }) {
   const [day, setDay] = useState(() => reportDate(new Date().toISOString()))
-  const records = app.data.movements.filter(movement => movement.business === business && reportDate(movement.created_at) === day)
+  const cashOnly = business === 'carreta'
+  const records = app.data.movements.filter(movement => movement.business === business && (!cashOnly || movement.method === 'efectivo') && reportDate(movement.created_at) === day)
   const kinds: MovementKind[] = ['cobro', 'ingreso', 'gasto', 'retiro', 'correccion', 'transferencia']
   return <details className="daily-report">
     <summary>Reporte del día<span>{new Date(day + 'T12:00:00').toLocaleDateString('es-EC', { day: 'numeric', month: 'short' })}</span></summary>
     <label>Fecha<input type="date" value={day} onChange={event => setDay(event.target.value)}/></label>
-    {(['efectivo', 'transferencia'] as Method[]).map(method => {
+    {(cashOnly ? ['efectivo'] as Method[] : ['efectivo', 'transferencia'] as Method[]).map(method => {
       const selected = records.filter(movement => movement.method === method)
       return <div className="report-method" key={method}>
         <h3>{method === 'efectivo' ? 'Efectivo' : 'Transferencias'}</h3>
