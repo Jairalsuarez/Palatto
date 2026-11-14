@@ -345,9 +345,6 @@ function DrinksSalesPage({ app, back }: { app: Restaurant; back: () => void }) {
     ))
     .reduce((sum, movement) => sum + Math.abs(movement.amount), 0)
   const cashPending = Math.max(0, sales.cash + sales.transfer - separated)
-  const movements = app.data.movements.filter(movement => movement.business === 'carreta').sort((a, b) => b.created_at.localeCompare(a.created_at))
-  const balanceByMethod = (method: Method) => movements.filter(movement => movement.method === method).reduce((sum, movement) => sum + movement.amount, 0)
-  const boxBalance = movements.reduce((sum, movement) => sum + movement.amount, 0)
   const mainCashBalance = app.data.movements.filter(movement => movement.business === 'palatto' && movement.method === 'efectivo').reduce((sum, movement) => sum + movement.amount, 0)
   const canSeparate = canCash(app.role, 'palatto')
   const transferReason = todayKey
@@ -358,37 +355,13 @@ function DrinksSalesPage({ app, back }: { app: Restaurant; back: () => void }) {
   }
 
   return <>
-    <div className="subpage-bar">
-      <button className="back-button" onClick={back} aria-label="Volver"><ChevronLeft size={22}/><span>Volver</span></button>
-      <div><p className="eyebrow">Inicio</p><h1>Aguas y colas</h1></div>
-    </div>
-    <section className="drinks-sales-page-card" aria-label="Ventas acumuladas de aguas y colas">
-      <div className="drinks-sales-heading">
-        <div><span className="eyebrow">Caja de colas</span><h2>Saldo total</h2></div>
-        <strong>{money(boxBalance)}</strong>
-      </div>
-      <div className="drinks-sales-methods">
-        <p><span>Efectivo</span><b>{money(balanceByMethod('efectivo'))}</b></p>
-        <p><span>Transferencia</span><b>{money(balanceByMethod('transferencia'))}</b></p>
-      </div>
-      <p className="drinks-sales-explanation">Las ventas de aguas y colas se mandan aquí como efectivo, aunque el cliente haya pagado por transferencia. El movimiento de transferencia original no se modifica.</p>
-    </section>
+    <Cash app={app} back={back} business="carreta"/>
     <section className="drinks-sales-page-card drinks-sales-pending">
       <div className="drinks-sales-heading"><div><span className="eyebrow">Caja principal</span><h2>Ventas por mandar a caja de colas</h2></div><strong>{money(cashPending)}</strong></div>
       <p className="drinks-sales-explanation">Disponible en efectivo en caja principal: {money(mainCashBalance)}</p>
       {canSeparate && <button type="button" className="btn btn-primary btn-block" disabled={!cashPending || mainCashBalance < cashPending || app.busy} onClick={() => setConfirming(true)}>
         <ArrowDownLeft size={17}/>{mainCashBalance < cashPending ? 'Efectivo insuficiente' : 'Mandar efectivo a caja de colas'}
       </button>}
-    </section>
-    <section className="drinks-movement-card">
-      <div className="section-top"><h2>Movimientos de caja</h2><span className="pill">{movements.length}</span></div>
-      {!movements.length ? <p className="empty-line">Todavía no hay movimientos en la caja de colas.</p> : <ul className="movement-list">
-        {movements.map(movement => <li className="movement" key={movement.id}>
-          <span className={`movement-icon ${movement.amount < 0 ? 'out' : ''}`}>{movement.amount < 0 ? <ArrowDownLeft size={17}/> : <ArrowUpRight size={17}/>}</span>
-          <div><strong>{movement.reason}</strong><small>{movementKindLabel(movement.kind)} · {dateTime(movement.created_at)} · {movement.method === 'efectivo' ? 'Efectivo' : 'Transferencia'}</small></div>
-          <b className={movement.amount < 0 ? 'negative' : 'positive'}>{movement.amount < 0 ? '−' : '+'}{money(Math.abs(movement.amount))}</b>
-        </li>)}
-      </ul>}
     </section>
     {confirming && <Modal title="Separar efectivo" close={() => setConfirming(false)}>
       <div className="dialog-body form-stack">
@@ -410,7 +383,7 @@ function SalesHero({ app, onDrinks, onSummary, onCash }: { app: Restaurant; onDr
   return <section className="sales-hero" aria-label="Saldo de caja por medio de pago">
     <div className="sales-hero-top">
       <span className="eyebrow">Caja</span>
-      <div className="sales-hero-links"><button className="hero-link" onClick={onSummary}>Resumen del día<ArrowRight size={15}/></button><button className="hero-link" onClick={onDrinks}>Colas · {money(app.data.movements.filter(movement => movement.business === 'carreta').reduce((sum, movement) => sum + movement.amount, 0))}<ArrowUpRight size={15}/></button></div>
+      <div className="sales-hero-links"><button className="hero-link" onClick={onSummary}>Resumen del día<ArrowRight size={15}/></button><button className="hero-link" onClick={onDrinks}>Colas<ArrowUpRight size={15}/></button></div>
     </div>
     <button className="hero-balance" onClick={() => onCash('palatto')} aria-label="Abrir la caja">
       <strong className="hero-amount">{money(balance)}</strong>
@@ -906,7 +879,7 @@ function ProductPicker({ app, selected, add }: { app: Restaurant; selected: Item
 
 /* ----------------------------------------------------------------- Cajas */
 
-function Cash({ app, back }: { app: Restaurant; back: () => void }) {
+function Cash({ app, back, business = 'palatto' }: { app: Restaurant; back: () => void; business?: Business }) {
   const [form, setForm] = useState<'ingreso' | 'gasto' | 'retiro' | null>(null)
   const [method, setMethod] = useState<Method>('efectivo')
   const [amount, setAmount] = useState('')
@@ -914,7 +887,7 @@ function Cash({ app, back }: { app: Restaurant; back: () => void }) {
   const [receipt, setReceipt] = useState<string | null>(null)
   const [viewReceipt, setViewReceipt] = useState<string | null>(null)
 
-  const movements = [...app.data.movements].sort((a, b) => b.created_at.localeCompare(a.created_at))
+  const movements = app.data.movements.filter(movement => movement.business === business).sort((a, b) => b.created_at.localeCompare(a.created_at))
   const balance = (method: Method) => movements.filter(movement => movement.method === method).reduce((sum, movement) => sum + movement.amount, 0)
 
   function closeForm() {
@@ -936,11 +909,11 @@ function Cash({ app, back }: { app: Restaurant; back: () => void }) {
   return <>
     <div className="subpage-bar">
       <button className="back-button" onClick={back} aria-label="Volver"><ChevronLeft size={22}/><span>Volver</span></button>
-      <div><p className="eyebrow">Palatto</p><h1>Caja</h1></div>
+      <div><p className="eyebrow">{business === 'carreta' ? 'Aguas y colas' : 'Palatto'}</p><h1>{business === 'carreta' ? 'Caja de colas' : 'Caja'}</h1></div>
     </div>
 
     <section className="balance-card">
-      <div className="balance-top"><span>Saldo total del negocio</span><span className="balance-state">Disponible</span></div>
+      <div className="balance-top"><span>Saldo total</span><span className="balance-state">Disponible</span></div>
       <strong>{money(balance('efectivo') + balance('transferencia'))}</strong>
       <div className="balance-split">
         <span><Banknote size={16}/>Efectivo<b>{money(balance('efectivo'))}</b></span>
@@ -948,7 +921,7 @@ function Cash({ app, back }: { app: Restaurant; back: () => void }) {
       </div>
     </section>
 
-    {canCash(app.role, 'palatto')
+    {canCash(app.role, business)
       ? <div className="cash-actions">
           <button className="cash-action in" onClick={() => openForm('ingreso')}><Plus size={20}/>Ingresar</button>
           <button className="cash-action expense" onClick={() => openForm('gasto')}><ShoppingBag size={20}/>Gasto</button>
@@ -956,7 +929,7 @@ function Cash({ app, back }: { app: Restaurant; back: () => void }) {
         </div>
       : <p className="alert alert-info"><ShieldCheck size={17}/>Solo Administrador y Superadmin ajustan la caja. Los cobros entran automáticamente.</p>}
 
-    <DailyReport app={app}/>
+    <DailyReport app={app} business={business}/>
 
     <section className="stack">
       <div className="section-top"><h2>Movimientos</h2><span className="pill">{movements.length}</span></div>
@@ -976,7 +949,7 @@ function Cash({ app, back }: { app: Restaurant; back: () => void }) {
       <form className="form-stack" onSubmit={async event => {
         event.preventDefault()
         const value = cents(amount)
-        const done = await app.cash('palatto', form === 'retiro' || form === 'gasto' ? -value : value, method, reason, form, form === 'gasto' ? receipt : null)
+        const done = await app.cash(business, form === 'retiro' || form === 'gasto' ? -value : value, method, reason, form, form === 'gasto' ? receipt : null)
         if (done) closeForm()
       }}>
         {form === 'gasto' && <p className="alert alert-info">Un gasto es una salida para comprar algo. Un retiro es sacar dinero del negocio.</p>}
@@ -1001,9 +974,9 @@ function Cash({ app, back }: { app: Restaurant; back: () => void }) {
 }
 
 const reportDate = (value: string) => new Intl.DateTimeFormat('en-CA', { timeZone: 'America/Guayaquil', year: 'numeric', month: '2-digit', day: '2-digit' }).format(new Date(value))
-function DailyReport({ app }: { app: Restaurant }) {
+function DailyReport({ app, business = 'palatto' }: { app: Restaurant; business?: Business }) {
   const [day, setDay] = useState(() => reportDate(new Date().toISOString()))
-  const records = app.data.movements.filter(movement => reportDate(movement.created_at) === day)
+  const records = app.data.movements.filter(movement => movement.business === business && reportDate(movement.created_at) === day)
   const kinds: MovementKind[] = ['cobro', 'ingreso', 'gasto', 'retiro', 'correccion', 'transferencia']
   return <details className="daily-report">
     <summary>Reporte del día<span>{new Date(day + 'T12:00:00').toLocaleDateString('es-EC', { day: 'numeric', month: 'short' })}</span></summary>
