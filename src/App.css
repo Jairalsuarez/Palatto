@@ -521,26 +521,9 @@ input::placeholder, textarea::placeholder { color: color-mix(in oklab, var(--mut
   color: #fff8ee;
   box-shadow: 0 18px 34px -26px rgb(27 22 19 / 90%);
 }
-.drinks-sales-link {
-  display: inline-flex;
-  align-items: center;
-  gap: 8px;
-  min-height: 38px;
-  margin: 10px 0 14px;
-  padding: 6px 10px;
-  border: 1px solid var(--line);
-  border-radius: 11px;
-  background: var(--surface);
-  color: var(--ink-soft);
-  font-size: .74rem;
-  font-weight: 700;
-  cursor: pointer;
-  transition: border-color .16s ease, background .16s ease;
-}
-.drinks-sales-link:hover { border-color: color-mix(in oklab, var(--copper) 48%, var(--line)); background: var(--copper-soft); }
-.drinks-sales-link > svg:first-child { color: var(--copper-dark); }
-.drinks-sales-link strong { color: var(--ink); font-variant-numeric: tabular-nums; }
-.drinks-sales-link > svg:last-child { color: var(--muted); }
+.tab-label-balance { display: grid; gap: 1px; line-height: 1.05; }
+.tab-label-balance small { color: var(--muted); font-size: .58rem; font-weight: 650; font-variant-numeric: tabular-nums; }
+.tab.active .tab-label-balance small { color: var(--ink-soft); }
 .drinks-sales-page-card {
   display: grid;
   gap: 10px;
@@ -560,12 +543,7 @@ input::placeholder, textarea::placeholder { color: color-mix(in oklab, var(--mut
 .drinks-sales-methods p span { color: var(--muted); }
 .drinks-sales-methods p b { font-variant-numeric: tabular-nums; }
 .drinks-sales-explanation { margin: 2px 0 0; color: var(--muted); font-size: .8rem; line-height: 1.5; }
-.drinks-separation-card { display: grid; gap: 14px; max-width: 700px; margin: 0 auto; padding: 16px 18px; border: 1px solid var(--line); border-radius: 18px; background: var(--surface); }
-.drinks-separation-card > div { display: grid; gap: 4px; }
-.drinks-separation-card small { color: var(--muted); font-size: .74rem; font-weight: 750; }
-.drinks-separation-card strong { color: var(--ink); font-family: var(--font-display); font-size: 1.45rem; font-variant-numeric: tabular-nums; }
-.drinks-separation-card span { color: var(--muted); font-size: .76rem; }
-.drinks-separation-card .btn { width: 100%; }
+.drinks-movement-card { display: grid; gap: 10px; max-width: 700px; margin: 14px auto; padding: 16px 18px; border: 1px solid var(--line); border-radius: 18px; background: var(--surface); }
 .sales-hero-top { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
 .sales-hero-links { display: flex; align-items: center; gap: 12px; }
 .sales-hero .eyebrow { color: rgb(255 248 238 / 62%); }

@@ -241,6 +241,11 @@ export function useRestaurant() {
             if ((kind === 'gasto' || kind === 'retiro') && amount > 0) throw new Error('El gasto o retiro debe ser negativo.');
             await rpc('cash_movement', { p_business: business, p_amount: amount, p_method: method, p_reason: reason, p_kind: kind, p_receipt: receipt });
         }, 'Movimiento registrado', 'cash_movement'),
+        transferDrinksCash: (amount: number, day: string) => run(async () => {
+            if (!canCash(role, 'palatto')) throw new Error('No puedes ajustar esta caja.');
+            if (!Number.isSafeInteger(amount) || amount <= 0) throw new Error('El importe para trasladar no es válido.');
+            await rpc('transfer_drinks_cash', { p_amount: amount, p_day: day });
+        }, 'Efectivo enviado a la caja de colas', 'cash_movement'),
         productPhotoUrl: (path: string) => supabase!.storage.from('menu-images').getPublicUrl(path).data.publicUrl,
         async uploadProductPhoto(file: File): Promise<string> {
             if (!canMenu(role)) throw new Error('Solo administración puede subir fotos.');

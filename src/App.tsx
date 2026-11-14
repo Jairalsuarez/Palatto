@@ -123,11 +123,12 @@ export default function App() {
   if (app.profile.must_change_password) return <PasswordChange app={app} mandatory/>
 
   const pending = app.data.orders.filter(order => !order.paid).length
+  const drinksBoxBalance = app.data.movements.filter(movement => movement.business === 'carreta').reduce((sum, movement) => sum + movement.amount, 0)
   const tabs = [
     { id: 'pedidos', label: 'Inicio', icon: ClipboardList },
     { id: 'insumos', label: 'Insumos', icon: PackageOpen },
     { id: 'nuevo', label: 'Nuevo', icon: Plus },
-    { id: 'reportes', label: 'Reportes', icon: BarChart3 },
+    { id: 'bebidas', label: 'Colas', icon: Coffee },
     { id: 'menu', label: 'Menú', icon: BookOpen },
   ] as const
 
@@ -195,7 +196,7 @@ export default function App() {
         <button className="icon-button icon-sm" onClick={() => app.setError('')} aria-label="Cerrar aviso"><X size={16}/></button>
       </div>}
 
-      {page === 'pedidos' && <Home app={app} detail={detail} setDetail={setDetail} payRequest={payRequest} payHandled={() => setPayRequest(null)} onNew={() => navigate('nuevo')} onReport={() => navigate('reportes')} onSummary={() => navigate('resumen')} onCash={business => go('cajas', business)} onDrinks={() => navigate('bebidas')} onEdit={edit}/>}
+      {page === 'pedidos' && <Home app={app} detail={detail} setDetail={setDetail} payRequest={payRequest} payHandled={() => setPayRequest(null)} onNew={() => navigate('nuevo')} onReport={() => navigate('reportes')} onSummary={() => navigate('resumen')} onCash={business => go('cajas', business)} onEdit={edit}/>}
       {page === 'resumen' && <DailySummary app={app} onCash={business => go('cajas', business)}/>}
       {page === 'bebidas' && <DrinksSalesPage app={app} back={back}/>}
       {page === 'reportes' && <Reports app={app}/>}
@@ -216,13 +217,15 @@ export default function App() {
 
     {page !== 'nuevo' && page !== 'cuenta' && <nav className="tabbar" aria-label="Navegación principal">
       {tabs.map(tab => <button key={tab.id}
-        className={`tab ${page === tab.id || ((page === 'resumen' || page === 'bebidas') && tab.id === 'pedidos') ? 'active' : ''} ${tab.id === 'nuevo' ? 'tab-new' : ''}`}
-        aria-current={page === tab.id || ((page === 'resumen' || page === 'bebidas') && tab.id === 'pedidos') ? 'page' : undefined}
+        className={`tab ${page === tab.id || (page === 'resumen' && tab.id === 'pedidos') ? 'active' : ''} ${tab.id === 'nuevo' ? 'tab-new' : ''}`}
+        aria-current={page === tab.id || (page === 'resumen' && tab.id === 'pedidos') ? 'page' : undefined}
         onClick={() => navigate(tab.id)}>
         <span className="tab-icon"><tab.icon size={tab.id === 'nuevo' ? 26 : 22} aria-hidden="true"/>
           {tab.id === 'pedidos' && pending > 0 && <i className="tab-badge">{pending}</i>}
         </span>
-        <span className="tab-label">{tab.label}</span>
+        <span className={`tab-label ${tab.id === 'bebidas' ? 'tab-label-balance' : ''}`}>
+          {tab.label}{tab.id === 'bebidas' && <small>{money(drinksBoxBalance)}</small>}
+        </span>
       </button>)}
     </nav>}
 
@@ -238,7 +241,7 @@ export default function App() {
 
 /* ---------------------------------------------------------------- Inicio */
 
-function Home({ app, detail, setDetail, payRequest, payHandled, onNew, onReport, onSummary, onCash, onDrinks, onEdit }: { app: Restaurant; detail: string | null; setDetail: (id: string | null) => void; payRequest: string | null; payHandled: () => void; onNew: () => void; onReport: () => void; onSummary: () => void; onCash: (business: Business) => void; onDrinks: () => void; onEdit: (order: Order) => void }) {
+function Home({ app, detail, setDetail, payRequest, payHandled, onNew, onReport, onSummary, onCash, onEdit }: { app: Restaurant; detail: string | null; setDetail: (id: string | null) => void; payRequest: string | null; payHandled: () => void; onNew: () => void; onReport: () => void; onSummary: () => void; onCash: (business: Business) => void; onEdit: (order: Order) => void }) {
   const [filter, setFilter] = useState<'activos' | 'completados' | 'todos'>('activos')
   const [search, setSearch] = useState('')
   const [payment, setPayment] = useState<{ order: Order; split: boolean } | null>(null)
@@ -269,8 +272,6 @@ function Home({ app, detail, setDetail, payRequest, payHandled, onNew, onReport,
     </div>
 
     <SalesHero app={app} onReport={onReport} onSummary={onSummary} onCash={onCash}/>
-    <DrinksSalesLink app={app} onClick={onDrinks}/>
-
     <div className="toolbar">
       <div className="segmented" role="group" aria-label="Filtrar pedidos">
         {([['activos', 'En proceso'], ['completados', 'Completados'], ['todos', 'Todos']] as const).map(([id, label]) =>
@@ -333,29 +334,29 @@ function accumulatedDrinkSales(app: Restaurant) {
   return sales
 }
 
-function DrinksSalesLink({ app, onClick }: { app: Restaurant; onClick: () => void }) {
-  const sales = accumulatedDrinkSales(app)
-  return <button type="button" className="drinks-sales-link" onClick={onClick}>
-    <Coffee size={16}/><span>Aguas y colas</span><strong>{money(sales.cash + sales.transfer)}</strong><ArrowRight size={15}/>
-  </button>
-}
-
 function DrinksSalesPage({ app, back }: { app: Restaurant; back: () => void }) {
   const [confirming, setConfirming] = useState(false)
   const sales = accumulatedDrinkSales(app)
   const todayKey = reportDate(new Date().toISOString())
 
-  const withdrawalPrefix = 'Retiro diario de aguas y colas · '
+  const separationPrefix = 'Separación aguas y colas · '
+  const legacyWithdrawalPrefix = 'Retiro diario de aguas y colas · '
   const separated = app.data.movements
-    .filter(movement => reportDate(movement.created_at) >= drinksTrackingStart && movement.method === 'efectivo' && movement.kind === 'retiro' && movement.reason.startsWith(withdrawalPrefix))
+    .filter(movement => movement.business === 'palatto' && movement.method === 'efectivo' && reportDate(movement.created_at) >= drinksTrackingStart && (
+      (movement.kind === 'transferencia' && movement.amount < 0 && movement.reason.startsWith(separationPrefix)) ||
+      (movement.kind === 'retiro' && movement.reason.startsWith(legacyWithdrawalPrefix))
+    ))
     .reduce((sum, movement) => sum + Math.abs(movement.amount), 0)
   const cashPending = Math.max(0, sales.cash + sales.transfer - separated)
-  const cashBalance = app.data.movements.filter(movement => movement.method === 'efectivo').reduce((sum, movement) => sum + movement.amount, 0)
+  const movements = app.data.movements.filter(movement => movement.business === 'carreta').sort((a, b) => b.created_at.localeCompare(a.created_at))
+  const balanceByMethod = (method: Method) => movements.filter(movement => movement.method === method).reduce((sum, movement) => sum + movement.amount, 0)
+  const boxBalance = movements.reduce((sum, movement) => sum + movement.amount, 0)
+  const mainCashBalance = app.data.movements.filter(movement => movement.business === 'palatto' && movement.method === 'efectivo').reduce((sum, movement) => sum + movement.amount, 0)
   const canSeparate = canCash(app.role, 'palatto')
-  const withdrawalReason = `${withdrawalPrefix}${todayKey}`
+  const transferReason = todayKey
 
-  async function separateCash() {
-    const success = await app.cash('palatto', -cashPending, 'efectivo', withdrawalReason, 'retiro')
+  async function transferCashToDrinks() {
+    const success = await app.transferDrinksCash(cashPending, transferReason)
     if (success) setConfirming(false)
   }
 
@@ -366,27 +367,38 @@ function DrinksSalesPage({ app, back }: { app: Restaurant; back: () => void }) {
     </div>
     <section className="drinks-sales-page-card" aria-label="Ventas acumuladas de aguas y colas">
       <div className="drinks-sales-heading">
-        <div><span className="eyebrow">Desde el inicio del seguimiento</span><h2>Ventas acumuladas</h2></div>
-        <strong>{money(sales.cash + sales.transfer)}</strong>
+        <div><span className="eyebrow">Caja de colas</span><h2>Saldo total</h2></div>
+        <strong>{money(boxBalance)}</strong>
       </div>
       <div className="drinks-sales-methods">
-        <p><span>Efectivo</span><b>{money(sales.cash)}</b></p>
-        <p><span>Transferencia</span><b>{money(sales.transfer)}</b></p>
+        <p><span>Efectivo</span><b>{money(balanceByMethod('efectivo'))}</b></p>
+        <p><span>Transferencia</span><b>{money(balanceByMethod('transferencia'))}</b></p>
       </div>
-      <p className="drinks-sales-explanation">Al separar, todas las ventas se retiran como efectivo, incluso las que originalmente se pagaron por transferencia. Esos cobros de transferencia no se modifican.</p>
+      <p className="drinks-sales-explanation">Las ventas de aguas y colas se mandan aquí como efectivo, aunque el cliente haya pagado por transferencia. El movimiento de transferencia original no se modifica.</p>
     </section>
-    <section className="drinks-separation-card">
-      <div><small>Pendiente de separar en efectivo</small><strong>{money(cashPending)}</strong><span>Saldo disponible en efectivo: {money(cashBalance)}</span></div>
-      {canSeparate && <button type="button" className="btn btn-primary btn-block" disabled={!cashPending || cashBalance < cashPending || app.busy} onClick={() => setConfirming(true)}>
-        <ArrowDownLeft size={17}/>{cashBalance < cashPending ? 'Efectivo insuficiente' : 'Separar de caja principal'}
+    <section className="drinks-sales-page-card drinks-sales-pending">
+      <div className="drinks-sales-heading"><div><span className="eyebrow">Caja principal</span><h2>Ventas por mandar a caja de colas</h2></div><strong>{money(cashPending)}</strong></div>
+      <p className="drinks-sales-explanation">Disponible en efectivo en caja principal: {money(mainCashBalance)}</p>
+      {canSeparate && <button type="button" className="btn btn-primary btn-block" disabled={!cashPending || mainCashBalance < cashPending || app.busy} onClick={() => setConfirming(true)}>
+        <ArrowDownLeft size={17}/>{mainCashBalance < cashPending ? 'Efectivo insuficiente' : 'Mandar efectivo a caja de colas'}
       </button>}
+    </section>
+    <section className="drinks-movement-card">
+      <div className="section-top"><h2>Movimientos de caja</h2><span className="pill">{movements.length}</span></div>
+      {!movements.length ? <p className="empty-line">Todavía no hay movimientos en la caja de colas.</p> : <ul className="movement-list">
+        {movements.map(movement => <li className="movement" key={movement.id}>
+          <span className={`movement-icon ${movement.amount < 0 ? 'out' : ''}`}>{movement.amount < 0 ? <ArrowDownLeft size={17}/> : <ArrowUpRight size={17}/>}</span>
+          <div><strong>{movement.reason}</strong><small>{movementKindLabel(movement.kind)} · {dateTime(movement.created_at)} · {movement.method === 'efectivo' ? 'Efectivo' : 'Transferencia'}</small></div>
+          <b className={movement.amount < 0 ? 'negative' : 'positive'}>{movement.amount < 0 ? '−' : '+'}{money(Math.abs(movement.amount))}</b>
+        </li>)}
+      </ul>}
     </section>
     {confirming && <Modal title="Separar efectivo" close={() => setConfirming(false)}>
       <div className="dialog-body form-stack">
-        <p>¿Quieres separar {money(cashPending)} como efectivo de la caja principal para aguas y colas? Los cobros por transferencia no se modificarán.</p>
+        <p>¿Quieres mandar {money(cashPending)} en efectivo de la caja principal a la caja de colas? Los movimientos de transferencia no se modificarán.</p>
         <div className="editor-foot-actions">
           <button type="button" className="btn btn-ghost" disabled={app.busy} onClick={() => setConfirming(false)}>Cancelar</button>
-          <button type="button" className="btn btn-primary" disabled={app.busy} onClick={() => void separateCash()}>{app.busy ? 'Separando…' : 'Sí, separar'}</button>
+          <button type="button" className="btn btn-primary" disabled={app.busy} onClick={() => void transferCashToDrinks()}>{app.busy ? 'Trasladando…' : 'Sí, mandar a caja de colas'}</button>
         </div>
       </div>
     </Modal>}
