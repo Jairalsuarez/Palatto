@@ -8,7 +8,7 @@ import {
 import { Modal } from './Modal'
 import { useRestaurant } from './lib/useRestaurant'
 import type { Restaurant } from './lib/useRestaurant'
-import { itemIsDrink, itemTotal, canCash, canEdit, canMenu, canWrite, cents, labels, money, orderService, orderTotal, roles, total } from './lib/domain'
+import { itemIsDrink, itemTotal, canCash, canEdit, canMenu, canWrite, cents, labels, money, orderService, orderSplit, orderTotal, roles, total } from './lib/domain'
 import type { Business, Item, Method, MovementKind, Order, OrderPayment, Product, Profile, Role } from './lib/domain'
 import { analyze, dayKey, paymentTimes } from './lib/analytics'
 import { OrderList } from './OrderList'
@@ -932,18 +932,31 @@ function DailySummary({ app, onCash }: { app: Restaurant; onCash: (business: Bus
   const todayKey = reportDate(now.toISOString())
   const movements = app.data.movements.filter(movement => reportDate(movement.created_at) === todayKey).sort((a, b) => b.created_at.localeCompare(a.created_at))
   const sum = (kind: MovementKind) => movements.filter(movement => movement.kind === kind).reduce((value, movement) => value + movement.amount, 0)
-  const drinksCashSales = movements.filter(movement => movement.business === 'carreta' && movement.method === 'efectivo' && (movement.kind === 'cobro' || movement.kind === 'correccion')).reduce((value, movement) => value + movement.amount, 0)
+  const drinksCashFromOrders = app.data.orders.reduce((sum, order) => {
+    const orderPayments = app.data.order_payments.filter(payment => payment.order_id === order.id)
+    if (orderPayments.length) {
+      return sum + orderPayments
+        .filter(payment => payment.method === 'efectivo' && reportDate(payment.created_at) === todayKey)
+        .reduce((paid, payment) => paid + payment.items.filter(itemIsDrink).reduce((lineSum, item) => lineSum + itemTotal(item), 0), 0)
+    }
+    if (!order.paid || order.method !== 'efectivo' || reportDate(order.paid_at || order.created_at) !== todayKey) return sum
+    return sum + orderSplit(order).carreta
+  }, 0)
+  const drinksCashFromLegacyMovements = movements
+    .filter(movement => movement.business === 'carreta' && movement.method === 'efectivo' && !movement.order_id && (movement.kind === 'cobro' || movement.kind === 'correccion'))
+    .reduce((value, movement) => value + movement.amount, 0)
+  const drinksCashSales = drinksCashFromOrders + drinksCashFromLegacyMovements
   const drinksWithdrawalReason = `Retiro diario de aguas y colas · ${todayKey}`
-  const drinksCashWithdrawn = movements.filter(movement => movement.business === 'carreta' && movement.method === 'efectivo' && movement.kind === 'retiro' && movement.reason === drinksWithdrawalReason).reduce((value, movement) => value + Math.abs(movement.amount), 0)
+  const drinksCashWithdrawn = movements.filter(movement => movement.method === 'efectivo' && movement.kind === 'retiro' && movement.reason === drinksWithdrawalReason).reduce((value, movement) => value + Math.abs(movement.amount), 0)
   const drinksCashPending = Math.max(0, drinksCashSales - drinksCashWithdrawn)
-  const drinksCashBalance = app.data.movements.filter(movement => movement.business === 'carreta' && movement.method === 'efectivo').reduce((value, movement) => value + movement.amount, 0)
+  const drinksCashBalance = app.data.movements.filter(movement => movement.method === 'efectivo').reduce((value, movement) => value + movement.amount, 0)
   const expenses = Math.max(0, -sum('gasto'))
   const cashBalance = app.data.movements.reduce((value, movement) => value + movement.amount, 0)
   const balanceByMethod = (method: Method) => app.data.movements.filter(movement => movement.method === method).reduce((value, movement) => value + movement.amount, 0)
   const chartMax = Math.max(summary.revenue, expenses, cashBalance, 1)
   const drinksCanBeWithdrawn = drinksCashPending > 0 && drinksCashBalance >= drinksCashPending
   async function withdrawDrinksCash() {
-    const success = await app.cash('carreta', -drinksCashPending, 'efectivo', drinksWithdrawalReason, 'retiro')
+    const success = await app.cash('palatto', -drinksCashPending, 'efectivo', drinksWithdrawalReason, 'retiro')
     if (success) setConfirmDrinksWithdrawal(false)
   }
   return <div className="daily-summary-page">
