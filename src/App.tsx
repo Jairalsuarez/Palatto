@@ -336,7 +336,7 @@ function DrinksSalesCard({ app }: { app: Restaurant }) {
   const separated = app.data.movements
     .filter(movement => reportDate(movement.created_at) >= drinksTrackingStart && movement.method === 'efectivo' && movement.kind === 'retiro' && movement.reason.startsWith(withdrawalPrefix))
     .reduce((sum, movement) => sum + Math.abs(movement.amount), 0)
-  const cashPending = Math.max(0, sales.cash - separated)
+  const cashPending = Math.max(0, sales.cash + sales.transfer - separated)
   const cashBalance = app.data.movements.filter(movement => movement.method === 'efectivo').reduce((sum, movement) => sum + movement.amount, 0)
   const canSeparate = canCash(app.role, 'palatto')
   const withdrawalReason = `${withdrawalPrefix}${todayKey}`
@@ -357,7 +357,7 @@ function DrinksSalesCard({ app }: { app: Restaurant }) {
         <p><span>Transferencia</span><b>{money(sales.transfer)}</b></p>
       </div>
       <div className="drinks-sales-footer">
-        <span>{cashPending > 0 ? `Efectivo por separar · ${money(cashPending)}` : 'No hay efectivo pendiente por separar'}</span>
+        <span>{cashPending > 0 ? `Pendiente de separar como efectivo · ${money(cashPending)}` : 'No hay efectivo pendiente por separar'}</span>
         {canSeparate && <button type="button" className="btn btn-ghost btn-sm" disabled={!cashPending || cashBalance < cashPending || app.busy} onClick={() => setConfirming(true)}>
           <ArrowDownLeft size={15}/>{cashBalance < cashPending ? 'Efectivo insuficiente' : 'Separar efectivo'}
         </button>}
@@ -365,7 +365,7 @@ function DrinksSalesCard({ app }: { app: Restaurant }) {
     </section>
     {confirming && <Modal title="Separar efectivo" close={() => setConfirming(false)}>
       <div className="dialog-body form-stack">
-        <p>¿Quieres separar {money(cashPending)} en efectivo de la caja principal para aguas y colas?</p>
+        <p>¿Quieres separar {money(cashPending)} como efectivo de la caja principal para aguas y colas? Los cobros por transferencia no se modificarán.</p>
         <div className="editor-foot-actions">
           <button type="button" className="btn btn-ghost" disabled={app.busy} onClick={() => setConfirming(false)}>Cancelar</button>
           <button type="button" className="btn btn-primary" disabled={app.busy} onClick={() => void separateCash()}>{app.busy ? 'Separando…' : 'Sí, separar'}</button>
