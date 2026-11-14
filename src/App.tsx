@@ -16,7 +16,7 @@ import { Reports } from './Reports'
 import { Inventory } from './Inventory'
 import './App.css'
 
-type Page = 'pedidos' | 'nuevo' | 'cajas' | 'menu' | 'equipo' | 'reportes' | 'insumos' | 'cuenta' | 'resumen'
+type Page = 'pedidos' | 'nuevo' | 'cajas' | 'menu' | 'equipo' | 'reportes' | 'insumos' | 'cuenta' | 'resumen' | 'bebidas'
 type Route = { page: Page; cashBusiness: Business | null }
 
 const number = (n: number) => String(n)
@@ -195,8 +195,9 @@ export default function App() {
         <button className="icon-button icon-sm" onClick={() => app.setError('')} aria-label="Cerrar aviso"><X size={16}/></button>
       </div>}
 
-      {page === 'pedidos' && <Home app={app} detail={detail} setDetail={setDetail} payRequest={payRequest} payHandled={() => setPayRequest(null)} onNew={() => navigate('nuevo')} onReport={() => navigate('reportes')} onSummary={() => navigate('resumen')} onCash={business => go('cajas', business)} onEdit={edit}/>}
+      {page === 'pedidos' && <Home app={app} detail={detail} setDetail={setDetail} payRequest={payRequest} payHandled={() => setPayRequest(null)} onNew={() => navigate('nuevo')} onReport={() => navigate('reportes')} onSummary={() => navigate('resumen')} onCash={business => go('cajas', business)} onDrinks={() => navigate('bebidas')} onEdit={edit}/>}
       {page === 'resumen' && <DailySummary app={app} onCash={business => go('cajas', business)}/>}
+      {page === 'bebidas' && <DrinksSalesPage app={app} back={back}/>}
       {page === 'reportes' && <Reports app={app}/>}
       {page === 'insumos' && <Inventory app={app}/>}
       {page === 'nuevo' && canWrite(app.role) && <OrderEditor key={editing?.id || 'new'} app={app} order={editing} back={back} done={finishOrder} pay={paySaved}/>}
@@ -215,8 +216,8 @@ export default function App() {
 
     {page !== 'nuevo' && page !== 'cuenta' && <nav className="tabbar" aria-label="Navegación principal">
       {tabs.map(tab => <button key={tab.id}
-        className={`tab ${page === tab.id || (page === 'resumen' && tab.id === 'pedidos') ? 'active' : ''} ${tab.id === 'nuevo' ? 'tab-new' : ''}`}
-        aria-current={page === tab.id || (page === 'resumen' && tab.id === 'pedidos') ? 'page' : undefined}
+        className={`tab ${page === tab.id || ((page === 'resumen' || page === 'bebidas') && tab.id === 'pedidos') ? 'active' : ''} ${tab.id === 'nuevo' ? 'tab-new' : ''}`}
+        aria-current={page === tab.id || ((page === 'resumen' || page === 'bebidas') && tab.id === 'pedidos') ? 'page' : undefined}
         onClick={() => navigate(tab.id)}>
         <span className="tab-icon"><tab.icon size={tab.id === 'nuevo' ? 26 : 22} aria-hidden="true"/>
           {tab.id === 'pedidos' && pending > 0 && <i className="tab-badge">{pending}</i>}
@@ -237,7 +238,7 @@ export default function App() {
 
 /* ---------------------------------------------------------------- Inicio */
 
-function Home({ app, detail, setDetail, payRequest, payHandled, onNew, onReport, onSummary, onCash, onEdit }: { app: Restaurant; detail: string | null; setDetail: (id: string | null) => void; payRequest: string | null; payHandled: () => void; onNew: () => void; onReport: () => void; onSummary: () => void; onCash: (business: Business) => void; onEdit: (order: Order) => void }) {
+function Home({ app, detail, setDetail, payRequest, payHandled, onNew, onReport, onSummary, onCash, onDrinks, onEdit }: { app: Restaurant; detail: string | null; setDetail: (id: string | null) => void; payRequest: string | null; payHandled: () => void; onNew: () => void; onReport: () => void; onSummary: () => void; onCash: (business: Business) => void; onDrinks: () => void; onEdit: (order: Order) => void }) {
   const [filter, setFilter] = useState<'activos' | 'completados' | 'todos'>('activos')
   const [search, setSearch] = useState('')
   const [payment, setPayment] = useState<{ order: Order; split: boolean } | null>(null)
@@ -268,7 +269,7 @@ function Home({ app, detail, setDetail, payRequest, payHandled, onNew, onReport,
     </div>
 
     <SalesHero app={app} onReport={onReport} onSummary={onSummary} onCash={onCash}/>
-    <DrinksSalesCard app={app}/>
+    <DrinksSalesLink app={app} onClick={onDrinks}/>
 
     <div className="toolbar">
       <div className="segmented" role="group" aria-label="Filtrar pedidos">
@@ -305,9 +306,7 @@ function Home({ app, detail, setDetail, payRequest, payHandled, onNew, onReport,
   </>
 }
 
-function DrinksSalesCard({ app }: { app: Restaurant }) {
-  const [confirming, setConfirming] = useState(false)
-  const todayKey = reportDate(new Date().toISOString())
+function accumulatedDrinkSales(app: Restaurant) {
   const sales = app.data.orders.reduce((sum, order) => {
     const orderPayments = app.data.order_payments.filter(payment => payment.order_id === order.id)
     if (orderPayments.length) {
@@ -331,6 +330,20 @@ function DrinksSalesCard({ app }: { app: Restaurant }) {
     if (movement.method === 'efectivo') sales.cash += movement.amount
     else sales.transfer += movement.amount
   }
+  return sales
+}
+
+function DrinksSalesLink({ app, onClick }: { app: Restaurant; onClick: () => void }) {
+  const sales = accumulatedDrinkSales(app)
+  return <button type="button" className="drinks-sales-link" onClick={onClick}>
+    <Coffee size={16}/><span>Aguas y colas</span><strong>{money(sales.cash + sales.transfer)}</strong><ArrowRight size={15}/>
+  </button>
+}
+
+function DrinksSalesPage({ app, back }: { app: Restaurant; back: () => void }) {
+  const [confirming, setConfirming] = useState(false)
+  const sales = accumulatedDrinkSales(app)
+  const todayKey = reportDate(new Date().toISOString())
 
   const withdrawalPrefix = 'Retiro diario de aguas y colas · '
   const separated = app.data.movements
@@ -347,21 +360,26 @@ function DrinksSalesCard({ app }: { app: Restaurant }) {
   }
 
   return <>
-    <section className="drinks-sales-card" aria-label="Ventas acumuladas de aguas y colas">
+    <div className="subpage-bar">
+      <button className="back-button" onClick={back} aria-label="Volver"><ChevronLeft size={22}/><span>Volver</span></button>
+      <div><p className="eyebrow">Inicio</p><h1>Aguas y colas</h1></div>
+    </div>
+    <section className="drinks-sales-page-card" aria-label="Ventas acumuladas de aguas y colas">
       <div className="drinks-sales-heading">
-        <div><span className="eyebrow">Aguas y colas</span><h2>Ventas acumuladas</h2></div>
+        <div><span className="eyebrow">Desde el inicio del seguimiento</span><h2>Ventas acumuladas</h2></div>
         <strong>{money(sales.cash + sales.transfer)}</strong>
       </div>
       <div className="drinks-sales-methods">
         <p><span>Efectivo</span><b>{money(sales.cash)}</b></p>
         <p><span>Transferencia</span><b>{money(sales.transfer)}</b></p>
       </div>
-      <div className="drinks-sales-footer">
-        <span>{cashPending > 0 ? `Pendiente de separar como efectivo · ${money(cashPending)}` : 'No hay efectivo pendiente por separar'}</span>
-        {canSeparate && <button type="button" className="btn btn-ghost btn-sm" disabled={!cashPending || cashBalance < cashPending || app.busy} onClick={() => setConfirming(true)}>
-          <ArrowDownLeft size={15}/>{cashBalance < cashPending ? 'Efectivo insuficiente' : 'Separar efectivo'}
-        </button>}
-      </div>
+      <p className="drinks-sales-explanation">Al separar, todas las ventas se retiran como efectivo, incluso las que originalmente se pagaron por transferencia. Esos cobros de transferencia no se modifican.</p>
+    </section>
+    <section className="drinks-separation-card">
+      <div><small>Pendiente de separar en efectivo</small><strong>{money(cashPending)}</strong><span>Saldo disponible en efectivo: {money(cashBalance)}</span></div>
+      {canSeparate && <button type="button" className="btn btn-primary btn-block" disabled={!cashPending || cashBalance < cashPending || app.busy} onClick={() => setConfirming(true)}>
+        <ArrowDownLeft size={17}/>{cashBalance < cashPending ? 'Efectivo insuficiente' : 'Separar de caja principal'}
+      </button>}
     </section>
     {confirming && <Modal title="Separar efectivo" close={() => setConfirming(false)}>
       <div className="dialog-body form-stack">

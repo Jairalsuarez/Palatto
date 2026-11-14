@@ -521,26 +521,51 @@ input::placeholder, textarea::placeholder { color: color-mix(in oklab, var(--mut
   color: #fff8ee;
   box-shadow: 0 18px 34px -26px rgb(27 22 19 / 90%);
 }
-.drinks-sales-card {
+.drinks-sales-link {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 38px;
+  margin: 10px 0 14px;
+  padding: 6px 10px;
+  border: 1px solid var(--line);
+  border-radius: 11px;
+  background: var(--surface);
+  color: var(--ink-soft);
+  font-size: .74rem;
+  font-weight: 700;
+  cursor: pointer;
+  transition: border-color .16s ease, background .16s ease;
+}
+.drinks-sales-link:hover { border-color: color-mix(in oklab, var(--copper) 48%, var(--line)); background: var(--copper-soft); }
+.drinks-sales-link > svg:first-child { color: var(--copper-dark); }
+.drinks-sales-link strong { color: var(--ink); font-variant-numeric: tabular-nums; }
+.drinks-sales-link > svg:last-child { color: var(--muted); }
+.drinks-sales-page-card {
   display: grid;
   gap: 10px;
-  margin: 12px 0 16px;
-  padding: 14px 16px;
+  max-width: 700px;
+  margin: 0 auto 12px;
+  padding: 18px;
   border: 1px solid color-mix(in oklab, var(--copper) 28%, var(--line));
-  border-radius: 18px;
+  border-radius: 20px;
   background: linear-gradient(120deg, color-mix(in oklab, var(--copper-soft) 48%, var(--surface)), var(--surface) 72%);
 }
 .drinks-sales-heading { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
 .drinks-sales-heading .eyebrow { margin-bottom: 3px; color: var(--copper-dark); }
-.drinks-sales-heading h2 { margin: 0; font-size: .92rem; font-weight: 750; }
-.drinks-sales-heading > strong { color: var(--ink); font-family: var(--font-display); font-size: 1.45rem; font-variant-numeric: tabular-nums; }
+.drinks-sales-heading h2 { margin: 0; font-size: 1rem; font-weight: 750; }
+.drinks-sales-heading > strong { color: var(--ink); font-family: var(--font-display); font-size: 1.8rem; font-variant-numeric: tabular-nums; }
 .drinks-sales-methods { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
-.drinks-sales-methods p { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin: 0; padding: 8px 10px; border-radius: 11px; background: color-mix(in oklab, var(--surface) 78%, transparent); font-size: .76rem; }
+.drinks-sales-methods p { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin: 0; padding: 10px 12px; border-radius: 12px; background: color-mix(in oklab, var(--surface) 78%, transparent); font-size: .82rem; }
 .drinks-sales-methods p span { color: var(--muted); }
 .drinks-sales-methods p b { font-variant-numeric: tabular-nums; }
-.drinks-sales-footer { display: flex; align-items: center; justify-content: space-between; gap: 10px; padding-top: 9px; border-top: 1px solid color-mix(in oklab, var(--copper) 18%, var(--line)); color: var(--muted); font-size: .72rem; font-weight: 650; }
-.drinks-sales-footer .btn { flex: 0 0 auto; }
-.drinks-sales-footer .btn:disabled { opacity: .65; }
+.drinks-sales-explanation { margin: 2px 0 0; color: var(--muted); font-size: .8rem; line-height: 1.5; }
+.drinks-separation-card { display: grid; gap: 14px; max-width: 700px; margin: 0 auto; padding: 16px 18px; border: 1px solid var(--line); border-radius: 18px; background: var(--surface); }
+.drinks-separation-card > div { display: grid; gap: 4px; }
+.drinks-separation-card small { color: var(--muted); font-size: .74rem; font-weight: 750; }
+.drinks-separation-card strong { color: var(--ink); font-family: var(--font-display); font-size: 1.45rem; font-variant-numeric: tabular-nums; }
+.drinks-separation-card span { color: var(--muted); font-size: .76rem; }
+.drinks-separation-card .btn { width: 100%; }
 .sales-hero-top { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
 .sales-hero-links { display: flex; align-items: center; gap: 12px; }
 .sales-hero .eyebrow { color: rgb(255 248 238 / 62%); }
