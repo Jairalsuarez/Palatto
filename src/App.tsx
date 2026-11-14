@@ -123,12 +123,11 @@ export default function App() {
   if (app.profile.must_change_password) return <PasswordChange app={app} mandatory/>
 
   const pending = app.data.orders.filter(order => !order.paid).length
-  const drinksBoxBalance = app.data.movements.filter(movement => movement.business === 'carreta').reduce((sum, movement) => sum + movement.amount, 0)
   const tabs = [
     { id: 'pedidos', label: 'Inicio', icon: ClipboardList },
     { id: 'insumos', label: 'Insumos', icon: PackageOpen },
     { id: 'nuevo', label: 'Nuevo', icon: Plus },
-    { id: 'bebidas', label: 'Colas', icon: Coffee },
+    { id: 'reportes', label: 'Reportes', icon: BarChart3 },
     { id: 'menu', label: 'Menú', icon: BookOpen },
   ] as const
 
@@ -196,7 +195,7 @@ export default function App() {
         <button className="icon-button icon-sm" onClick={() => app.setError('')} aria-label="Cerrar aviso"><X size={16}/></button>
       </div>}
 
-      {page === 'pedidos' && <Home app={app} detail={detail} setDetail={setDetail} payRequest={payRequest} payHandled={() => setPayRequest(null)} onNew={() => navigate('nuevo')} onReport={() => navigate('reportes')} onSummary={() => navigate('resumen')} onCash={business => go('cajas', business)} onEdit={edit}/>}
+      {page === 'pedidos' && <Home app={app} detail={detail} setDetail={setDetail} payRequest={payRequest} payHandled={() => setPayRequest(null)} onNew={() => navigate('nuevo')} onDrinks={() => navigate('bebidas')} onSummary={() => navigate('resumen')} onCash={business => go('cajas', business)} onEdit={edit}/>}
       {page === 'resumen' && <DailySummary app={app} onCash={business => go('cajas', business)}/>}
       {page === 'bebidas' && <DrinksSalesPage app={app} back={back}/>}
       {page === 'reportes' && <Reports app={app}/>}
@@ -223,9 +222,7 @@ export default function App() {
         <span className="tab-icon"><tab.icon size={tab.id === 'nuevo' ? 26 : 22} aria-hidden="true"/>
           {tab.id === 'pedidos' && pending > 0 && <i className="tab-badge">{pending}</i>}
         </span>
-        <span className={`tab-label ${tab.id === 'bebidas' ? 'tab-label-balance' : ''}`}>
-          {tab.label}{tab.id === 'bebidas' && <small>{money(drinksBoxBalance)}</small>}
-        </span>
+        <span className="tab-label">{tab.label}</span>
       </button>)}
     </nav>}
 
@@ -241,7 +238,7 @@ export default function App() {
 
 /* ---------------------------------------------------------------- Inicio */
 
-function Home({ app, detail, setDetail, payRequest, payHandled, onNew, onReport, onSummary, onCash, onEdit }: { app: Restaurant; detail: string | null; setDetail: (id: string | null) => void; payRequest: string | null; payHandled: () => void; onNew: () => void; onReport: () => void; onSummary: () => void; onCash: (business: Business) => void; onEdit: (order: Order) => void }) {
+function Home({ app, detail, setDetail, payRequest, payHandled, onNew, onDrinks, onSummary, onCash, onEdit }: { app: Restaurant; detail: string | null; setDetail: (id: string | null) => void; payRequest: string | null; payHandled: () => void; onNew: () => void; onDrinks: () => void; onSummary: () => void; onCash: (business: Business) => void; onEdit: (order: Order) => void }) {
   const [filter, setFilter] = useState<'activos' | 'completados' | 'todos'>('activos')
   const [search, setSearch] = useState('')
   const [payment, setPayment] = useState<{ order: Order; split: boolean } | null>(null)
@@ -271,7 +268,7 @@ function Home({ app, detail, setDetail, payRequest, payHandled, onNew, onReport,
       {canWrite(app.role) && <button className="home-new" onClick={onNew} aria-label="Nuevo pedido"><Plus size={20}/></button>}
     </div>
 
-    <SalesHero app={app} onReport={onReport} onSummary={onSummary} onCash={onCash}/>
+    <SalesHero app={app} onDrinks={onDrinks} onSummary={onSummary} onCash={onCash}/>
     <div className="toolbar">
       <div className="segmented" role="group" aria-label="Filtrar pedidos">
         {([['activos', 'En proceso'], ['completados', 'Completados'], ['todos', 'Todos']] as const).map(([id, label]) =>
@@ -405,7 +402,7 @@ function DrinksSalesPage({ app, back }: { app: Restaurant; back: () => void }) {
   </>
 }
 
-function SalesHero({ app, onReport, onSummary, onCash }: { app: Restaurant; onReport: () => void; onSummary: () => void; onCash: (business: Business) => void }) {
+function SalesHero({ app, onDrinks, onSummary, onCash }: { app: Restaurant; onDrinks: () => void; onSummary: () => void; onCash: (business: Business) => void }) {
   const balance = app.data.movements.reduce((sum, movement) => sum + movement.amount, 0)
   const cash = app.data.movements.filter(movement => movement.method === 'efectivo').reduce((sum, movement) => sum + movement.amount, 0)
   const transfer = app.data.movements.filter(movement => movement.method === 'transferencia').reduce((sum, movement) => sum + movement.amount, 0)
@@ -413,7 +410,7 @@ function SalesHero({ app, onReport, onSummary, onCash }: { app: Restaurant; onRe
   return <section className="sales-hero" aria-label="Saldo de caja por medio de pago">
     <div className="sales-hero-top">
       <span className="eyebrow">Caja</span>
-      <div className="sales-hero-links"><button className="hero-link" onClick={onSummary}>Resumen del día<ArrowRight size={15}/></button><button className="hero-link" onClick={onReport}>Reportes<ArrowUpRight size={15}/></button></div>
+      <div className="sales-hero-links"><button className="hero-link" onClick={onSummary}>Resumen del día<ArrowRight size={15}/></button><button className="hero-link" onClick={onDrinks}>Colas · {money(app.data.movements.filter(movement => movement.business === 'carreta').reduce((sum, movement) => sum + movement.amount, 0))}<ArrowUpRight size={15}/></button></div>
     </div>
     <button className="hero-balance" onClick={() => onCash('palatto')} aria-label="Abrir la caja">
       <strong className="hero-amount">{money(balance)}</strong>
