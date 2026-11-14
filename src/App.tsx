@@ -23,6 +23,7 @@ const number = (n: number) => String(n)
 const movementKindLabel = (kind: MovementKind) => ({ ingreso: 'Ingreso', gasto: 'Gasto', retiro: 'Retiro', cobro: 'Cobro', correccion: 'Corrección', transferencia: 'Transferencia' }[kind])
 const dateTime = (d: string) => new Date(d).toLocaleString('es-EC', { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })
 const today = () => new Date().toLocaleDateString('es-EC', { weekday: 'long', day: 'numeric', month: 'long' })
+const drinksTrackingStart = '2026-11-13' // Inicio del seguimiento acumulado de aguas y colas.
 
 function Empty({ title, children, action }: { title: string; children: ReactNode; action?: ReactNode }) {
   return <div className="empty">
@@ -267,6 +268,7 @@ function Home({ app, detail, setDetail, payRequest, payHandled, onNew, onReport,
     </div>
 
     <SalesHero app={app} onReport={onReport} onSummary={onSummary} onCash={onCash}/>
+    <DrinksSalesCard app={app}/>
 
     <div className="toolbar">
       <div className="segmented" role="group" aria-label="Filtrar pedidos">
@@ -299,6 +301,76 @@ function Home({ app, detail, setDetail, payRequest, payHandled, onNew, onReport,
 
     {receipt && <Modal title="Comprobante de transferencia" close={() => setReceipt(null)}>
       <img className="receipt-image" src={receipt} alt="Comprobante del pago"/>
+    </Modal>}
+  </>
+}
+
+function DrinksSalesCard({ app }: { app: Restaurant }) {
+  const [confirming, setConfirming] = useState(false)
+  const todayKey = reportDate(new Date().toISOString())
+  const sales = app.data.orders.reduce((sum, order) => {
+    const orderPayments = app.data.order_payments.filter(payment => payment.order_id === order.id)
+    if (orderPayments.length) {
+      for (const payment of orderPayments) {
+        if (reportDate(payment.created_at) < drinksTrackingStart) continue
+        const amount = payment.items.filter(itemIsDrink).reduce((value, item) => value + itemTotal(item), 0)
+        if (payment.method === 'efectivo') sum.cash += amount
+        else sum.transfer += amount
+      }
+      return sum
+    }
+    if (!order.paid || !order.method || reportDate(order.paid_at || order.created_at) < drinksTrackingStart) return sum
+    const amount = orderSplit(order).carreta
+    if (order.method === 'efectivo') sum.cash += amount
+    else sum.transfer += amount
+    return sum
+  }, { cash: 0, transfer: 0 })
+  for (const movement of app.data.movements) {
+    if (reportDate(movement.created_at) < drinksTrackingStart || movement.business !== 'carreta' || movement.order_id) continue
+    if (movement.kind !== 'cobro' && movement.kind !== 'correccion') continue
+    if (movement.method === 'efectivo') sales.cash += movement.amount
+    else sales.transfer += movement.amount
+  }
+
+  const withdrawalPrefix = 'Retiro diario de aguas y colas · '
+  const separated = app.data.movements
+    .filter(movement => reportDate(movement.created_at) >= drinksTrackingStart && movement.method === 'efectivo' && movement.kind === 'retiro' && movement.reason.startsWith(withdrawalPrefix))
+    .reduce((sum, movement) => sum + Math.abs(movement.amount), 0)
+  const cashPending = Math.max(0, sales.cash - separated)
+  const cashBalance = app.data.movements.filter(movement => movement.method === 'efectivo').reduce((sum, movement) => sum + movement.amount, 0)
+  const canSeparate = canCash(app.role, 'palatto')
+  const withdrawalReason = `${withdrawalPrefix}${todayKey}`
+
+  async function separateCash() {
+    const success = await app.cash('palatto', -cashPending, 'efectivo', withdrawalReason, 'retiro')
+    if (success) setConfirming(false)
+  }
+
+  return <>
+    <section className="drinks-sales-card" aria-label="Ventas acumuladas de aguas y colas">
+      <div className="drinks-sales-heading">
+        <div><span className="eyebrow">Aguas y colas</span><h2>Ventas acumuladas</h2></div>
+        <strong>{money(sales.cash + sales.transfer)}</strong>
+      </div>
+      <div className="drinks-sales-methods">
+        <p><span>Efectivo</span><b>{money(sales.cash)}</b></p>
+        <p><span>Transferencia</span><b>{money(sales.transfer)}</b></p>
+      </div>
+      <div className="drinks-sales-footer">
+        <span>{cashPending > 0 ? `Efectivo por separar · ${money(cashPending)}` : 'No hay efectivo pendiente por separar'}</span>
+        {canSeparate && <button type="button" className="btn btn-ghost btn-sm" disabled={!cashPending || cashBalance < cashPending || app.busy} onClick={() => setConfirming(true)}>
+          <ArrowDownLeft size={15}/>{cashBalance < cashPending ? 'Efectivo insuficiente' : 'Separar efectivo'}
+        </button>}
+      </div>
+    </section>
+    {confirming && <Modal title="Separar efectivo" close={() => setConfirming(false)}>
+      <div className="dialog-body form-stack">
+        <p>¿Quieres separar {money(cashPending)} en efectivo de la caja principal para aguas y colas?</p>
+        <div className="editor-foot-actions">
+          <button type="button" className="btn btn-ghost" disabled={app.busy} onClick={() => setConfirming(false)}>Cancelar</button>
+          <button type="button" className="btn btn-primary" disabled={app.busy} onClick={() => void separateCash()}>{app.busy ? 'Separando…' : 'Sí, separar'}</button>
+        </div>
+      </div>
     </Modal>}
   </>
 }
@@ -926,61 +998,22 @@ function DailyReport({ app }: { app: Restaurant }) {
 }
 
 function DailySummary({ app, onCash }: { app: Restaurant; onCash: (business: Business) => void }) {
-  const [confirmDrinksWithdrawal, setConfirmDrinksWithdrawal] = useState(false)
   const now = new Date()
   const summary = analyze(app.data.orders, app.data.products, 'hoy', now, paymentTimes(app.data.movements), app.data.order_payments)
   const todayKey = reportDate(now.toISOString())
   const movements = app.data.movements.filter(movement => reportDate(movement.created_at) === todayKey).sort((a, b) => b.created_at.localeCompare(a.created_at))
   const sum = (kind: MovementKind) => movements.filter(movement => movement.kind === kind).reduce((value, movement) => value + movement.amount, 0)
-  const drinksCashFromOrders = app.data.orders.reduce((sum, order) => {
-    const orderPayments = app.data.order_payments.filter(payment => payment.order_id === order.id)
-    if (orderPayments.length) {
-      return sum + orderPayments
-        .filter(payment => payment.method === 'efectivo' && reportDate(payment.created_at) === todayKey)
-        .reduce((paid, payment) => paid + payment.items.filter(itemIsDrink).reduce((lineSum, item) => lineSum + itemTotal(item), 0), 0)
-    }
-    if (!order.paid || order.method !== 'efectivo' || reportDate(order.paid_at || order.created_at) !== todayKey) return sum
-    return sum + orderSplit(order).carreta
-  }, 0)
-  const drinksCashFromLegacyMovements = movements
-    .filter(movement => movement.business === 'carreta' && movement.method === 'efectivo' && !movement.order_id && (movement.kind === 'cobro' || movement.kind === 'correccion'))
-    .reduce((value, movement) => value + movement.amount, 0)
-  const drinksCashSales = drinksCashFromOrders + drinksCashFromLegacyMovements
-  const drinksWithdrawalReason = `Retiro diario de aguas y colas · ${todayKey}`
-  const drinksCashWithdrawn = movements.filter(movement => movement.method === 'efectivo' && movement.kind === 'retiro' && movement.reason === drinksWithdrawalReason).reduce((value, movement) => value + Math.abs(movement.amount), 0)
-  const drinksCashPending = Math.max(0, drinksCashSales - drinksCashWithdrawn)
-  const drinksCashBalance = app.data.movements.filter(movement => movement.method === 'efectivo').reduce((value, movement) => value + movement.amount, 0)
   const expenses = Math.max(0, -sum('gasto'))
   const cashBalance = app.data.movements.reduce((value, movement) => value + movement.amount, 0)
   const balanceByMethod = (method: Method) => app.data.movements.filter(movement => movement.method === method).reduce((value, movement) => value + movement.amount, 0)
   const chartMax = Math.max(summary.revenue, expenses, cashBalance, 1)
-  const drinksCanBeWithdrawn = drinksCashPending > 0 && drinksCashBalance >= drinksCashPending
-  async function withdrawDrinksCash() {
-    const success = await app.cash('palatto', -drinksCashPending, 'efectivo', drinksWithdrawalReason, 'retiro')
-    if (success) setConfirmDrinksWithdrawal(false)
-  }
   return <div className="daily-summary-page">
     <div className="page-heading"><div><p className="eyebrow">Palatto · {new Date(todayKey + 'T12:00:00').toLocaleDateString('es-EC', { weekday: 'long', day: 'numeric', month: 'long' })}</p><h1>Resumen del día</h1></div></div>
     <div className="daily-summary-grid">
       <article className="daily-summary-stat sales"><small>Vendido hoy</small><strong>{money(summary.revenue)}</strong><span>Confirmado al cobrar</span></article>
       <article className="daily-summary-stat orders"><small>Pedidos cobrados</small><strong>{summary.orders}</strong><span>En el día</span></article>
-      {canCash(app.role, 'carreta')
-        ? <button type="button" className="daily-summary-stat drinks drinks-button" disabled={!drinksCanBeWithdrawn || app.busy} onClick={() => setConfirmDrinksWithdrawal(true)} aria-label={`Retirar ${money(drinksCashPending)} en efectivo de la caja de aguas y colas`}>
-            <small>Aguas y colas</small><strong>{money(drinksCashPending)}</strong><span>{drinksCashBalance < drinksCashPending ? 'Efectivo insuficiente en la caja' : 'Efectivo cobrado hoy pendiente de retirar'}</span>
-            <ArrowDownLeft className="drinks-action-indicator" size={16}/>
-          </button>
-        : <article className="daily-summary-stat drinks"><small>Aguas y colas</small><strong>{money(drinksCashPending)}</strong><span>Efectivo cobrado hoy pendiente de retirar</span></article>}
       <article className="daily-summary-stat cash"><small>Saldo en caja</small><strong>{money(cashBalance)}</strong><span>Efectivo y transferencias</span></article>
     </div>
-    {confirmDrinksWithdrawal && <Modal title="Retirar de caja" close={() => setConfirmDrinksWithdrawal(false)}>
-      <div className="dialog-body form-stack">
-        <p>¿Quieres retirar {money(drinksCashPending)} en efectivo de la caja de aguas y colas?</p>
-        <div className="editor-foot-actions">
-          <button type="button" className="btn btn-ghost" disabled={app.busy} onClick={() => setConfirmDrinksWithdrawal(false)}>Cancelar</button>
-          <button type="button" className="btn btn-primary" disabled={app.busy} onClick={() => void withdrawDrinksCash()}>{app.busy ? 'Retirando…' : 'Sí, retirar'}</button>
-        </div>
-      </div>
-    </Modal>}
     <section className="summary-payment-breakdown" aria-label="Desglose de efectivo y transferencias">
       <div><h2>Cobros de hoy</h2><p><span><Banknote size={16}/>Efectivo</span><b>{money(summary.byMethod.efectivo.revenue)}</b></p><p><span><CreditCard size={16}/>Transferencias</span><b>{money(summary.byMethod.transferencia.revenue)}</b></p>
         <small>{summary.byMethod.efectivo.orders} {summary.byMethod.efectivo.orders === 1 ? 'pedido' : 'pedidos'} en efectivo · {summary.byMethod.transferencia.orders} por transferencia.</small>
