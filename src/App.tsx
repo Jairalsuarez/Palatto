@@ -345,46 +345,18 @@ function accumulatedDrinkSales(app: Restaurant) {
 }
 
 function DrinksSalesPage({ app, back }: { app: Restaurant; back: () => void }) {
-  const [confirming, setConfirming] = useState(false)
   const sales = accumulatedDrinkSales(app)
-  const todayKey = reportDate(new Date().toISOString())
-
-  const separationPrefix = 'Separación aguas y colas · '
-  const legacyWithdrawalPrefix = 'Retiro diario de aguas y colas · '
-  const separated = app.data.movements
-    .filter(movement => movement.business === 'palatto' && movement.method === 'efectivo' && reportDate(movement.created_at) >= drinksTrackingStart && (
-      (movement.kind === 'transferencia' && movement.amount < 0 && movement.reason.startsWith(separationPrefix)) ||
-      (movement.kind === 'retiro' && movement.reason.startsWith(legacyWithdrawalPrefix))
-    ))
-    .reduce((sum, movement) => sum + Math.abs(movement.amount), 0)
-  const cashPending = Math.max(0, sales.cash + sales.transfer - separated)
-  const mainCashBalance = app.data.movements.filter(movement => movement.business === 'palatto' && movement.method === 'efectivo').reduce((sum, movement) => sum + movement.amount, 0)
-  const canSeparate = canCash(app.role, 'palatto')
-  const transferReason = todayKey
-
-  async function transferCashToDrinks() {
-    const success = await app.transferDrinksCash(cashPending, transferReason)
-    if (success) setConfirming(false)
-  }
+  const salesTotal = sales.cash + sales.transfer
 
   return <>
-    <Cash app={app} back={back} business="carreta"/>
-    <section className="drinks-sales-page-card drinks-sales-pending">
-      <div className="drinks-sales-heading"><div><span className="eyebrow">Caja principal</span><h2>Ventas por mandar a caja de colas</h2></div><strong>{money(cashPending)}</strong></div>
-      <p className="drinks-sales-explanation">Disponible en efectivo en caja principal: {money(mainCashBalance)}</p>
-      {canSeparate && <button type="button" className="btn btn-primary btn-block" disabled={!cashPending || mainCashBalance < cashPending || app.busy} onClick={() => setConfirming(true)}>
-        <ArrowDownLeft size={17}/>{mainCashBalance < cashPending ? 'Efectivo insuficiente' : 'Mandar efectivo a caja de colas'}
-      </button>}
+    <div className="subpage-bar">
+      <button className="back-button" onClick={back} aria-label="Volver"><ChevronLeft size={22}/><span>Volver</span></button>
+      <div><p className="eyebrow">Inicio</p><h1>Aguas y colas</h1></div>
+    </div>
+    <section className="drinks-sales-page-card" aria-label="Ventas acumuladas de aguas y colas">
+      <div className="drinks-sales-heading"><div><span className="eyebrow">Ventas acumuladas</span><h2>Total vendido</h2></div><strong>{money(salesTotal)}</strong></div>
+      <p className="drinks-sales-explanation">Este total muestra las ventas de aguas y colas por separado. No mueve ni descuenta dinero de ninguna caja.</p>
     </section>
-    {confirming && <Modal title="Separar efectivo" close={() => setConfirming(false)}>
-      <div className="dialog-body form-stack">
-        <p>¿Quieres mandar {money(cashPending)} en efectivo de la caja principal a la caja de colas? Los movimientos de transferencia no se modificarán.</p>
-        <div className="editor-foot-actions">
-          <button type="button" className="btn btn-ghost" disabled={app.busy} onClick={() => setConfirming(false)}>Cancelar</button>
-          <button type="button" className="btn btn-primary" disabled={app.busy} onClick={() => void transferCashToDrinks()}>{app.busy ? 'Trasladando…' : 'Sí, mandar a caja de colas'}</button>
-        </div>
-      </div>
-    </Modal>}
   </>
 }
 
