@@ -15,7 +15,11 @@ export const roles: Role[] = ['superadmin', 'administrador', 'cocinero', 'mesera
 export const labels: Record<Role, string> = { superadmin: 'Superadmin', administrador: 'Administrador', cocinero: 'Cocinero', mesera: 'Mesera', mesero: 'Mesero', visualizador: 'Visualizador' }
 export const businessLabel = (b: Business) => b === 'palatto' ? 'Palatto' : 'Aguas y colas'
 export const registerLabel = (b: Business) => b === 'palatto' ? 'Caja principal' : 'Caja de aguas y colas'
-export const money = (cents: number) => new Intl.NumberFormat('es-EC', { style: 'currency', currency: 'USD' }).format(cents / 100)
+let sensitiveValuesHidden = false
+export const setSensitiveValuesHidden = (hidden: boolean) => { sensitiveValuesHidden = hidden }
+export const displayNumber = (value: string | number) => sensitiveValuesHidden ? '•••' : String(value)
+export const displayNumericText = (value: string) => sensitiveValuesHidden ? value.replace(/\d/g, '•') : value
+export const money = (cents: number) => sensitiveValuesHidden ? '••••' : new Intl.NumberFormat('es-EC', { style: 'currency', currency: 'USD' }).format(cents / 100)
 export const cents = (value: string) => Math.round(Number(value) * 100)
 export const itemTotal = (item: Item) => item.price * item.quantity + (item.takeaway_fee || 0) * (item.takeaway_quantity || 0)
 export const itemIsDrink = (item: Item) => Boolean(item.is_drink) || item.business === 'carreta'

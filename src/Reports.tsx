@@ -3,7 +3,7 @@ import { Download, TrendingUp } from 'lucide-react'
 import type { Restaurant } from './lib/useRestaurant'
 import type { RangeKey } from './lib/analytics'
 import { analyze, dailyTrend, dayKey, paymentTimes, rangeDays, rangeLabels, salesCsv } from './lib/analytics'
-import { money } from './lib/domain'
+import { displayNumber, displayNumericText, money } from './lib/domain'
 
 const ranges: RangeKey[] = ['hoy', '7d', 'quincena']
 
@@ -14,10 +14,10 @@ export function Reports({ app }: { app: Restaurant }) {
   const days = rangeDays(range, now)
   const data = useMemo(() => analyze(app.data.orders, app.data.products, range, now, paidAt, app.data.order_payments), [app.data.orders, app.data.products, app.data.order_payments, range, paidAt])
   const series = useMemo(() => range === 'hoy'
-    ? data.byHour.map(hour => ({ label: `${String(hour.hour).padStart(2, '0')}h`, value: hour.revenue, hint: `${String(hour.hour).padStart(2, '0')}:00 · ${hour.orders} pedidos` }))
+    ? data.byHour.map(hour => ({ label: `${displayNumber(String(hour.hour).padStart(2, '0'))}h`, value: hour.revenue, hint: `${displayNumber(String(hour.hour).padStart(2, '0'))}:00 · ${displayNumber(hour.orders)} pedidos` }))
     : dailyTrend(app.data.orders, Math.max(days.length, 1), now, paidAt).map(day => ({
-      label: new Date(`${day.day}T12:00:00`).toLocaleDateString('es-EC', { day: 'numeric', month: 'short' }), value: day.revenue,
-      hint: `${new Date(`${day.day}T12:00:00`).toLocaleDateString('es-EC', { weekday: 'long', day: 'numeric', month: 'long' })} · ${day.orders} pedidos`,
+      label: displayNumericText(new Date(`${day.day}T12:00:00`).toLocaleDateString('es-EC', { day: 'numeric', month: 'short' })), value: day.revenue,
+      hint: `${displayNumericText(new Date(`${day.day}T12:00:00`).toLocaleDateString('es-EC', { weekday: 'long', day: 'numeric', month: 'long' }))} · ${displayNumber(day.orders)} pedidos`,
     })), [app.data.orders, data.byHour, days.length, now, paidAt, range])
   const expenses = Math.max(0, -app.data.movements.filter(movement => movement.kind === 'gasto' && days.includes(dayKey(movement.created_at))).reduce((sum, movement) => sum + movement.amount, 0))
   const maxValue = Math.max(...series.map(point => point.value), 1)
@@ -52,12 +52,12 @@ export function Reports({ app }: { app: Restaurant }) {
       <button className="btn btn-ghost btn-sm" onClick={exportCsv} disabled={!hasSales}><Download size={17}/>CSV</button>
     </div>
     <div className="segmented report-range-simple" role="group" aria-label="Periodo del reporte">
-      {ranges.map(key => <button type="button" key={key} className={range === key ? 'active' : ''} aria-pressed={range === key} onClick={() => setRange(key)}>{rangeLabels[key]}</button>)}
+      {ranges.map(key => <button type="button" key={key} className={range === key ? 'active' : ''} aria-pressed={range === key} onClick={() => setRange(key)}>{displayNumericText(rangeLabels[key])}</button>)}
     </div>
     <section className="report-total-card">
-      <small>Ventas cobradas · {rangeLabels[range]}</small>
+      <small>Ventas cobradas · {displayNumericText(rangeLabels[range])}</small>
       <strong>{money(data.revenue)}</strong>
-      <span>{data.orders} pedidos · {data.itemsSold} artículos vendidos</span>
+      <span>{displayNumber(data.orders)} pedidos · {displayNumber(data.itemsSold)} artículos vendidos</span>
     </section>
     <div className="reports-simple-stats">
       <article><small>Gastos</small><strong>{money(expenses)}</strong></article>

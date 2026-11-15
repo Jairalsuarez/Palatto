@@ -3,7 +3,7 @@ import { Check, Plus, Receipt } from 'lucide-react'
 import { Modal } from './Modal'
 import type { FormEvent } from 'react'
 import type { Restaurant } from './lib/useRestaurant'
-import { canWrite, cents, money } from './lib/domain'
+import { canWrite, cents, displayNumber, displayNumericText, money } from './lib/domain'
 import { useInventory } from './lib/inventory'
 import type { Supply, SupplyPurchaseInput } from './lib/inventory'
 
@@ -65,13 +65,13 @@ export function Inventory({ app }: { app: Restaurant }) {
     <div className="inventory-summary simple">
       <div className="inventory-stat"><div><small>Pagado</small><strong>{money(paidTotal)}</strong></div></div>
       <div className="inventory-stat"><div><small>Pendiente</small><strong>{money(pendingTotal)}</strong></div></div>
-      <div className="inventory-stat"><div><small>Compras</small><strong>{inventory.purchases.length}</strong></div></div>
+      <div className="inventory-stat"><div><small>Compras</small><strong>{displayNumber(inventory.purchases.length)}</strong></div></div>
     </div>
     <section className="simple-supply-list" aria-label="Lista de insumos">
       {!inventory.purchases.length ? <div className="empty"><h3>Aún no hay insumos</h3><p>Agrega uno con su nombre y valor.</p></div> : inventory.purchases.map(item => {
         const name = supplyById.get(item.supply_id)?.name || 'Insumo'
         return <article className="simple-supply-row" key={item.id}>
-          <div className="simple-supply-info"><strong>{name}</strong><small>{new Date(item.created_at).toLocaleDateString('es-EC', { day: 'numeric', month: 'short', year: 'numeric' })}</small></div>
+          <div className="simple-supply-info"><strong>{name}</strong><small>{displayNumericText(new Date(item.created_at).toLocaleDateString('es-EC', { day: 'numeric', month: 'short', year: 'numeric' }))}</small></div>
           <strong className="simple-supply-amount">{money(item.total_amount)}</strong>
           {item.receipt && <button type="button" className="movement-receipt" onClick={async () => {
             try { setViewReceipt(await app.receiptUrl(item.receipt!)) } catch (error) { app.setError((error as Error).message) }

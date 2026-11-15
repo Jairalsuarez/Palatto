@@ -51,6 +51,22 @@
 
 .app-bar-right { display: flex; align-items: center; gap: 8px; }
 
+.privacy-toggle {
+  display: grid;
+  place-items: center;
+  width: 40px;
+  height: 40px;
+  border: 1px solid var(--line);
+  border-radius: 50%;
+  background: var(--surface);
+  color: var(--muted);
+  transition: color .16s ease, background .16s ease, transform .16s ease;
+}
+.privacy-toggle:hover { color: var(--ink); background: var(--surface-2); }
+.privacy-toggle:active { transform: scale(.95); }
+.privacy-values-hidden input[type="number"],
+.privacy-values-hidden input[type="date"] { filter: blur(7px); }
+
 .pending-dot {
   display: grid;
   place-items: center;
