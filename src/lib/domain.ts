@@ -13,8 +13,6 @@ export interface Audit { id: string; order_id: string; reason: string; created_a
 export interface Data { products: Product[]; orders: Order[]; shifts: Shift[]; movements: Movement[]; order_payments: OrderPayment[]; profiles: Profile[]; audits: Audit[] }
 export const roles: Role[] = ['superadmin', 'administrador', 'cocinero', 'mesera', 'mesero', 'visualizador']
 export const labels: Record<Role, string> = { superadmin: 'Superadmin', administrador: 'Administrador', cocinero: 'Cocinero', mesera: 'Mesera', mesero: 'Mesero', visualizador: 'Visualizador' }
-export const businessLabel = (b: Business) => b === 'palatto' ? 'Palatto' : 'Aguas y colas'
-export const registerLabel = (b: Business) => b === 'palatto' ? 'Caja principal' : 'Caja de aguas y colas'
 let sensitiveValuesHidden = false
 export const setSensitiveValuesHidden = (hidden: boolean) => { sensitiveValuesHidden = hidden }
 export const displayNumber = (value: string | number) => sensitiveValuesHidden ? '•••' : String(value)
@@ -27,8 +25,6 @@ export const total = (items: Item[], business?: Business) => items.filter(i => !
 export const canWrite = (role: Role) => role !== 'visualizador'
 export const canMenu = (role: Role) => ['superadmin', 'administrador'].includes(role)
 export const canCash = (role: Role, _b: Business) => role === 'superadmin' || role === 'administrador'
-export const isOpen = (_data: Data, _b: Business) => true
-export const available = (data: Data) => data.products.filter(p => p.active)
 export const canEdit = (role: Role, order: Order) => canWrite(role) && !order.paid
 export function validatePayment(amount: number, method: Method, received: number, receipt: string | null) {
   if (method === 'efectivo' && amount > 0 && (!Number.isSafeInteger(received) || received < amount)) throw new Error('El efectivo recibido no cubre el importe.')
@@ -45,24 +41,11 @@ export function splitTotal(items: Item[], amount: number) {
 }
 export function orderSplit(order: Order) { return splitTotal(order.items, orderTotal(order)) }
 
-/** Keeps the base price and only changes how many units of a line are takeaway. */
-export function priceForService(items: Item[], takeaway: boolean): Item[] {
-  return items.map(item => ({
-    ...item,
-    base_price: item.base_price ?? item.price,
-    takeaway_quantity: takeaway ? item.quantity : 0,
-  }))
-}
-
 export function orderService(order: Order): string {
   const quantity = order.items.reduce((sum, item) => sum + item.quantity, 0)
   const takeaway = order.items.reduce((sum, item) => sum + Math.min(item.quantity, item.takeaway_quantity || 0), 0)
   if (!takeaway) return 'Para servir'
   if (takeaway >= quantity) return 'Para llevar'
   return `${takeaway} de ${quantity} para llevar`
-}
-
-export function hasTakeawayItems(order: Order) {
-  return order.items.some(item => (item.takeaway_quantity || 0) > 0)
 }
 

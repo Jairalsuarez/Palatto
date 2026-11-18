@@ -170,12 +170,29 @@ test('Un solo menú, una sola caja, numeración diaria y ajustes', async t => {
     assert.equal(await scalar("select count(*)::integer from movements where order_id=$1 and business='palatto'", [order]), 2)
   })
 
+  await t.test('El último pago de una cuenta dividida cubre el saldo exacto', async () => {
+    await user('mesera')
+    const order = await scalar("select create_order('Mesa dividida','',$1::jsonb)", [JSON.stringify([{ product_id: burger, quantity: 3, takeaway_quantity: 2 }])])
+    const one = JSON.stringify([{ product_id: burger, quantity: 1 }])
+    await db.query("select add_split_payment($1,1,'Ana',$2::jsonb,'efectivo',500)", [order, one])
+    await db.query("select add_split_payment($1,2,'Luis',$2::jsonb,'efectivo',500)", [order, one])
+    await db.query("select add_split_payment($1,3,'Eva',$2::jsonb,'efectivo',500)", [order, one])
+    assert.equal(await scalar('select paid from orders where id=$1', [order]), true)
+    assert.equal(await scalar('select sum(amount)::integer from order_payments where order_id=$1', [order]), 1150)
+    assert.equal(await scalar('select sum(amount)::integer from movements where order_id=$1', [order]), 1150)
+    assert.deepEqual((await db.query("select label,amount from order_payments where order_id=$1 order by created_at", [order])).rows, [
+      { label: 'Ana', amount: 400 },
+      { label: 'Luis', amount: 400 },
+      { label: 'Eva', amount: 350 },
+    ])
+  })
+
   await t.test('Un pedido con pagos divididos no se cobra, edita ni elimina por otra vía', async () => {
     await user('mesera')
     const order = await scalar("select create_order('Mesa 6','',$1::jsonb)", [burgerItems])
     await db.query("select add_split_payment($1,1,'Ana',$2::jsonb,'efectivo',350)", [order, JSON.stringify([{ product_id: burger, quantity: 1 }])])
     await assert.rejects(db.query("select pay_order($1,2,'efectivo',400)", [order]), /pagos divididos/)
-    await assert.rejects(db.query("select edit_order($1,2,'Mesa 6','',$2::jsonb,'Cambio',0,null,false)", [order, burgerItems]), /pagos parciales|pagos divididos/)
+    await assert.rejects(db.query("select edit_order($1,2,'Mesa 6','',$2::jsonb,false)", [order, burgerItems]), /pagos parciales|pagos divididos/)
     await assert.rejects(db.query("select delete_order($1,2,'Cliente se fue')", [order]), /cobros registrados|pagos divididos/)
     assert.equal(await scalar('select paid from orders where id=$1', [order]), false)
   })

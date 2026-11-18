@@ -60,6 +60,17 @@ test('Inventario de insumos: stock, permisos y movimientos', async () => {
     await assert.rejects(db.query("insert into supply_movements(supply_id,kind,quantity,reason,actor) values($1,'entrada',1,'x',$2)", [meat, viewer]), /permission denied/)
 
     await user(admin)
+    const purchase = await scalar("select register_supply_purchase($1,2,1000,'Mercado',false,null,false) ", [potato])
+    await assert.rejects(db.query("select update_supply_purchase($1,'paid',null)", [purchase]), /cómo se pagó/)
+    await db.query("select update_supply_purchase($1,'paid','efectivo')", [purchase])
+    assert.equal(await scalar('select paid from supply_purchases where id=$1', [purchase]), true)
+    assert.equal(await scalar('select amount::integer from movements where id=(select ledger_movement_id from supply_purchases where id=$1)', [purchase]), -2000)
+    assert.equal(await scalar('select method from movements where id=(select ledger_movement_id from supply_purchases where id=$1)', [purchase]), 'efectivo')
+    await db.query("select update_supply_purchase($1,'unpaid')", [purchase])
+    assert.equal(await scalar('select paid from supply_purchases where id=$1', [purchase]), false)
+    assert.equal(await scalar('select sum(amount)::integer from movements where kind=\'gasto\''), 0)
+
+    await user(admin)
     await db.query("select save_supply($1::uuid,'Carne de res','Carnes','kg'::public.supply_unit,10,800,false)", [meat])
     assert.equal(Number(await scalar('select min_stock from supplies where id=$1', [meat])), 10)
     assert.equal(await scalar('select active from supplies where id=$1', [meat]), false)

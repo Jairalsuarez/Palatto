@@ -172,5 +172,8 @@ La migración `20261112090000_order_total_adjustment.sql` está aplicada al proy
 ### Un solo menú, una sola caja y numeración diaria
 La migración `20261113090000_single_menu_daily_orders.sql` está aplicada al proyecto remoto desde el 13 de noviembre de 2026. Agrega `products.is_drink`, hace lógico el borrado de productos, crea `orders.order_day` y `orders.paid_at`, renumera los pedidos por día con `unique(order_day, number)`, guarda la cantidad para llevar por línea (`takeaway_quantity`) y unifica los cobros en la caja `palatto`. También agrega factura opcional a `movements` y `supply_purchases`, y actualiza las RPC `save_product`, `delete_product`, `create_order`, `edit_order`, `pay_order`, `cash_movement` y `register_supply_purchase`. Los productos se reiniciaron con `delete from public.products;`; los pedidos y movimientos históricos se conservaron.
 
+### Pagos de insumos y edición sin motivo
+La migración `20261118090000_supply_payment_edit_split_fixes.sql` está aplicada al proyecto remoto desde el 18 de noviembre de 2026. Corrige el pago de compras de insumos (la referencia ambigua `s.name` impedía registrar el gasto y descontarlo de la caja), simplifica `edit_order` para que no pida motivo ni reciba importes de cobro, y ajusta el último pago de una cuenta dividida al saldo exacto, incluidas las unidades para llevar.
+
 ### Conexión MCP de OpenCode
 El MCP remoto de Supabase está configurado con el `project_ref` de Palatto y autenticado por OAuth. El token se guarda en `~/.local/share/opencode/mcp-auth.json`, fuera del repositorio. La configuración solo contiene el `project_ref` y las funciones habilitadas.

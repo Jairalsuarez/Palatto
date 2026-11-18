@@ -355,7 +355,10 @@ function DrinksSalesPage({ app, back }: { app: Restaurant; back: () => void }) {
     </div>
     <section className="drinks-sales-page-card" aria-label="Ventas acumuladas de aguas y colas">
       <div className="drinks-sales-heading"><div><span className="eyebrow">Ventas acumuladas</span><h2>Total vendido</h2></div><strong>{money(salesTotal)}</strong></div>
-      <p className="drinks-sales-explanation">Este total muestra las ventas de aguas y colas por separado. No mueve ni descuenta dinero de ninguna caja.</p>
+      <div className="drinks-sales-methods">
+        <p><span><Banknote size={16}/>Efectivo</span><b>{money(sales.cash)}</b></p>
+        <p><span><CreditCard size={16}/>Transferencia</span><b>{money(sales.transfer)}</b></p>
+      </div>
     </section>
   </>
 }
@@ -399,7 +402,7 @@ function OrderDetail({ app, order, close, pay, split, edit, showReceipt }: { app
       ? <div className="form-stack">
           <div className="alert alert-danger">
             <Trash2 size={20}/>
-            <div><strong>Se eliminará el pedido #{number(order.number)}</strong><p>Esta acción no se puede deshacer. Quedará registrado quién lo eliminó y por qué.</p></div>
+            <div><strong>Se eliminará el pedido #{number(order.number)}</strong><p>Esta acción no se puede deshacer.</p></div>
           </div>
           <label>Motivo<input value={reason} onChange={event => setReason(event.target.value)} maxLength={300} minLength={3} required/></label>
           {app.error && <p className="alert alert-error" role="alert">{app.error}</p>}
@@ -502,6 +505,7 @@ function FullPayment({ app, order, close, view }: { app: Restaurant; order: Orde
   const [received, setReceived] = useState('')
   const [receipt, setReceipt] = useState<string | null>(null)
   const [totalInput, setTotalInput] = useState(() => (current / 100).toFixed(2))
+  const [editingTotal, setEditingTotal] = useState(false)
   const [formError, setFormError] = useState('')
   const parsed = totalInput.trim() === '' ? current : cents(totalInput)
   const amount = Number.isFinite(parsed) ? parsed : 0
@@ -518,18 +522,20 @@ function FullPayment({ app, order, close, view }: { app: Restaurant; order: Orde
   }}>
     <div className="pay-total">
       <span>Total a cobrar</span>
-      <strong>{money(amount)}</strong>
+      {editingTotal
+        ? <div className="pay-total-edit">
+            <input type="number" inputMode="decimal" autoFocus min="0.01" max="1000000" step="0.01" value={totalInput} onChange={event => { setTotalInput(event.target.value); setFormError('') }} aria-label="Total final"/>
+            <button type="button" className="icon-button" aria-label="Guardar total" onClick={() => { if (!Number.isFinite(amount) || amount <= 0) setFormError('El total debe ser un importe mayor a cero.'); else setEditingTotal(false) }}><Check size={18}/></button>
+          </div>
+        : <div className="pay-total-row">
+            <strong>{money(amount)}</strong>
+            <button type="button" className="icon-button" aria-label="Editar el total" onClick={() => { setTotalInput((amount / 100).toFixed(2)); setEditingTotal(true); setFormError('') }}><Pencil size={17}/></button>
+          </div>}
       <small>{orderService(order)} · {displayNumber(order.items.reduce((count, item) => count + item.quantity, 0))} artículos</small>
       {changed && <small className="pay-adjust-note">Original {money(base)} · Ajuste {amount > base ? '+' : ''}{money(amount - base)}</small>}
     </div>
 
-    <div className="adjust-box">
-      <label>Total final ($)
-        <input type="number" inputMode="decimal" min="0.01" max="1000000" step="0.01" value={totalInput} onChange={event => { setTotalInput(event.target.value); setFormError('') }}/>
-      </label>
-      <small className="adjust-hint">Puedes cambiarlo si diste un descuento o hiciste un ajuste.</small>
-      {changed && <button type="button" className="link-button" onClick={() => { setTotalInput((base / 100).toFixed(2)); setFormError('') }}>Usar total original ({money(base)})</button>}
-    </div>
+    {changed && <button type="button" className="link-button" onClick={() => { setTotalInput((base / 100).toFixed(2)); setEditingTotal(false); setFormError('') }}>Usar total original ({money(base)})</button>}
 
     <div className="segmented segmented-lg" role="group" aria-label="Forma de pago">
       {(['efectivo', 'transferencia'] as Method[]).map(option => <button type="button" key={option} className={method === option ? 'active' : ''} aria-pressed={method === option} onClick={() => setMethod(option)}>
@@ -559,7 +565,6 @@ function FullPayment({ app, order, close, view }: { app: Restaurant; order: Orde
     <button className="btn btn-money btn-lg btn-block" disabled={app.busy || order.paid || amount <= 0 || (method === 'transferencia' ? !receipt : given < amount)}>
       {order.paid ? 'Pedido cobrado' : app.busy ? 'Guardando…' : 'Confirmar pago'}<Check size={19}/>
     </button>
-    <p className="tiny center">Confirma cuando tengas el dinero en mano.</p>
   </form>
 }
 
@@ -588,7 +593,7 @@ function SplitPayment({ app, order, payments, close, view }: { app: Restaurant; 
       }
     })
     .filter(item => item.quantity > 0)
-  const amount = selected.reduce((sum, item) => sum + Math.round(itemTotal(item) / item.quantity) * item.quantity, 0)
+  const amount = selected.reduce((sum, item) => sum + itemTotal(item), 0)
   const given = cents(received)
   const change = Math.max(0, given - amount)
   const paid = payments.reduce((sum, payment) => sum + payment.amount, 0)
@@ -671,7 +676,6 @@ function SplitPayment({ app, order, payments, close, view }: { app: Restaurant; 
     <button className="btn btn-money btn-lg btn-block" disabled={app.busy || !ready}>
       {app.busy ? 'Guardando…' : amount >= remaining ? 'Cobrar y cerrar cuenta' : 'Registrar pago'}<Check size={19}/>
     </button>
-    <p className="tiny center">Cada pago queda dentro de este mismo pedido, con los productos asignados a cada persona.</p>
   </form>
 }
 
@@ -702,10 +706,9 @@ function OrderEditor({ app, order, back, done, pay }: { app: Restaurant; order?:
   const [picker, setPicker] = useState(false)
   const [showNotes, setShowNotes] = useState(Boolean(order?.notes))
   const [items, setItems] = useState<Item[]>(order?.items || [])
-  const [globalTakeaway, setGlobalTakeaway] = useState(Boolean(order?.takeaway))
   const [notes, setNotes] = useState(order?.notes || '')
-  const [reason, setReason] = useState('')
 
+  const allTakeaway = items.length > 0 && items.every(item => (item.takeaway_quantity || 0) >= item.quantity)
   const itemsTotal = total(items)
   const takeawayFee = items.reduce((sum, item) => sum + (item.takeaway_fee || 0) * (item.takeaway_quantity || 0), 0)
   const quantityTotal = items.reduce((sum, item) => sum + item.quantity, 0)
@@ -716,14 +719,18 @@ function OrderEditor({ app, order, back, done, pay }: { app: Restaurant; order?:
     setItems(current => {
       const found = current.find(item => item.product_id === product.id)
       return found
-        ? current.map(item => item.product_id === product.id ? { ...item, quantity: Math.min(99, item.quantity + 1), takeaway_quantity: Math.min(item.quantity + 1, (item.takeaway_quantity || 0) + (globalTakeaway ? 1 : 0)) } : item)
+        ? current.map(item => {
+            if (item.product_id !== product.id) return item
+            const quantity = Math.min(99, item.quantity + 1)
+            return { ...item, quantity, takeaway_quantity: allTakeaway ? quantity : Math.min(quantity, item.takeaway_quantity || 0) }
+          })
         : [...current, {
             product_id: product.id,
             name: product.name,
             price: product.price,
             base_price: product.price,
             takeaway_fee: product.takeaway_fee || 0,
-            takeaway_quantity: globalTakeaway ? 1 : 0,
+            takeaway_quantity: allTakeaway ? 1 : 0,
             is_drink: Boolean(product.is_drink),
             business: product.business,
             quantity: 1,
@@ -731,9 +738,11 @@ function OrderEditor({ app, order, back, done, pay }: { app: Restaurant; order?:
     })
   }
   function quantity(id: string, delta: number) {
-    setItems(current => current.map(item => item.product_id === id
-      ? { ...item, quantity: Math.min(99, item.quantity + delta), takeaway_quantity: Math.min(item.takeaway_quantity || 0, Math.max(0, item.quantity + delta)) }
-      : item).filter(item => item.quantity > 0))
+    setItems(current => current.map(item => {
+      if (item.product_id !== id) return item
+      const next = Math.min(99, item.quantity + delta)
+      return { ...item, quantity: next, takeaway_quantity: allTakeaway ? next : Math.min(next, item.takeaway_quantity || 0) }
+    }).filter(item => item.quantity > 0))
   }
   function takeaway(id: string, delta: number) {
     setItems(current => current.map(item => item.product_id === id
@@ -741,12 +750,11 @@ function OrderEditor({ app, order, back, done, pay }: { app: Restaurant; order?:
       : item))
   }
   function setAllTakeaway(value: boolean) {
-    setGlobalTakeaway(value)
     setItems(current => current.map(item => ({ ...item, takeaway_quantity: value ? item.quantity : 0 })))
   }
   async function submit(charge: boolean) {
     if (!items.length) { app.setError('Añade al menos un producto.'); return }
-    const saved = await app.saveOrder(order?.customer || 'Pedido', notes, items, order, reason, 0, null, globalTakeaway)
+    const saved = await app.saveOrder(order?.customer || 'Pedido', notes, items, order, allTakeaway)
     if (!saved) return
     if (charge) pay(saved)
     else done()
@@ -767,7 +775,7 @@ function OrderEditor({ app, order, back, done, pay }: { app: Restaurant; order?:
           : <>
               <div className="takeaway-summary">
                 <span>¿Para llevar?</span>
-                <button type="button" className={`app-switch ${globalTakeaway ? 'is-on' : ''}`} role="switch" aria-checked={globalTakeaway} aria-label="Para llevar todo el pedido" onClick={() => setAllTakeaway(!globalTakeaway)}><span/></button>
+                <button type="button" className={`app-switch ${allTakeaway ? 'is-on' : ''}`} role="switch" aria-checked={allTakeaway} aria-label="Para llevar todo el pedido" onClick={() => setAllTakeaway(!allTakeaway)}><span/></button>
               </div>
               <ul className="basket">
                 {items.map(item => <li key={item.product_id} className={item.takeaway_quantity ? 'has-takeaway' : ''}>
@@ -812,7 +820,7 @@ function OrderEditor({ app, order, back, done, pay }: { app: Restaurant; order?:
       </section>
 
       {order && <section className="editor-section">
-        <label>Motivo de la corrección<input value={reason} onChange={event => setReason(event.target.value)} minLength={3} maxLength={450} required placeholder="¿Qué cambió y por qué?"/></label>
+        <p className="muted small">Los cambios quedan registrados en el historial.</p>
       </section>}
 
       {app.error && <p className="alert alert-error" role="alert">{app.error}</p>}
@@ -939,7 +947,6 @@ function Cash({ app, back, business = 'palatto' }: { app: Restaurant; back: () =
         const done = await app.cash(business, form === 'retiro' || form === 'gasto' ? -value : value, method, reason, form, form === 'gasto' ? receipt : null)
         if (done) closeForm()
       }}>
-        {form === 'gasto' && <p className="alert alert-info">Un gasto es una salida para comprar algo. Un retiro es sacar dinero del negocio.</p>}
         <label>Importe ($)<input type="number" inputMode="decimal" step="0.01" min="0.01" max="1000000" required value={amount} onChange={event => setAmount(event.target.value)} placeholder="0.00" autoFocus/></label>
         {!cashOnly && <label>Medio<select value={method} onChange={event => setMethod(event.target.value as Method)}>
           <option value="efectivo">Efectivo</option>

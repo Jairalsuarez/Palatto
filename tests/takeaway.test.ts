@@ -112,24 +112,25 @@ test('Tarifas para llevar: precios del servidor, una sola caja y numeración dia
 async function editUnpaidOrder(db: PGlite, a: string, b: string) {
   const items = JSON.stringify([{ product_id: a, quantity: 2 }, { product_id: b, quantity: 1 }])
   const editable = (await db.query<{ id: string }>("select create_order('Mesa 2','',$1::jsonb) as id", [items])).rows[0].id
-  await assert.rejects(
-    db.query("select edit_order($1,1,'Mesa 2','',$2::jsonb,'x')", [editable, items]),
-    /motivo/,
-  )
-  await db.query(
-    "select edit_order($1,1,'Mesa 2','',$2::jsonb,'Cambio a llevar',0,null,null)",
-    [editable, JSON.stringify([{ product_id: a, quantity: 2, takeaway_quantity: 2 }, { product_id: b, quantity: 1 }])],
-  )
+  await db.query("select edit_order($1,1,'Mesa 2','',$2::jsonb)", [editable, items])
   const edited = (await db.query<{ items: { price: number; takeaway_quantity: number }[]; takeaway: boolean; version: number }>(
     'select items,takeaway,version from orders where id=$1', [editable],
   )).rows[0]
   assert.equal(edited.version, 2)
   assert.equal(edited.takeaway, false)
-  assert.equal(edited.items[0].takeaway_quantity, 2)
-  await db.query(
-    "select edit_order($1,2,'Mesa 2','',$2::jsonb,'Solo llevar',0,null,null)",
-    [editable, JSON.stringify([{ product_id: a, quantity: 2, takeaway_quantity: 2 }])],
-  )
-  const only = (await db.query<{ takeaway: boolean }>('select takeaway from orders where id=$1', [editable])).rows[0]
-  assert.equal(only.takeaway, true)
+  assert.deepEqual(edited.items.map(item => item.takeaway_quantity), [0, 0])
+
+  await db.query("select edit_order($1,2,'Mesa 2','',$2::jsonb,true)", [editable, items])
+  const toGo = (await db.query<{ items: { quantity: number; takeaway_quantity: number }[]; takeaway: boolean }>(
+    'select items,takeaway from orders where id=$1', [editable],
+  )).rows[0]
+  assert.equal(toGo.takeaway, true)
+  assert.deepEqual(toGo.items.map(item => [item.takeaway_quantity, item.quantity]), [[2, 2], [1, 1]])
+
+  await db.query("select edit_order($1,3,'Mesa 2','',$2::jsonb,false)", [editable, items])
+  const served = (await db.query<{ items: { takeaway_quantity: number }[]; takeaway: boolean }>(
+    'select items,takeaway from orders where id=$1', [editable],
+  )).rows[0]
+  assert.equal(served.takeaway, false)
+  assert.deepEqual(served.items.map(item => item.takeaway_quantity), [0, 0])
 }

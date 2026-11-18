@@ -157,7 +157,7 @@ export function useRestaurant() {
             if (result?.error) throw new Error(result.error);
             return result;
         },
-        saveOrder: async (customer: string, notes: string, items: Item[], order?: Order, reason = '', received = 0, receipt: string | null = null, takeaway = false) => {
+        saveOrder: async (customer: string, notes: string, items: Item[], order?: Order, takeaway = false) => {
             let savedId = order?.id || '';
             const ok = await run(async () => {
                 writer();
@@ -166,10 +166,6 @@ export function useRestaurant() {
                     throw new Error('Escribe la mesa o el nombre del cliente.');
                 if (order && !canEdit(role, order))
                     throw new Error('No tienes permiso para editar este pedido.');
-                if (order && reason.trim().length < 3)
-                    throw new Error('Escribe el motivo de la corrección.');
-                if (order?.paid && total(items) !== total(order.items))
-                    validatePayment(total(items) - total(order.items), order.method!, received, receipt);
                 const args = {
                     p_takeaway: takeaway,
                     p_customer: customer,
@@ -182,11 +178,11 @@ export function useRestaurant() {
                     })),
                 };
                 if (order) {
-                    await rpc('edit_order', { ...args, p_id: order.id, p_version: order.version, p_reason: reason, p_received: received, p_receipt: receipt });
+                    await rpc('edit_order', { ...args, p_id: order.id, p_version: order.version });
                 } else {
                     savedId = String(await rpc('create_order', args));
                 }
-            }, order ? 'Pedido actualizado. Ajustes registrados por caja.' : 'Pedido enviado a la cola', order ? 'order_updated' : 'order_created');
+            }, order ? 'Pedido actualizado' : 'Pedido enviado a la cola', order ? 'order_updated' : 'order_created');
             return ok ? savedId : null;
         },
 
@@ -202,7 +198,7 @@ export function useRestaurant() {
             writer();
             if (order.paid) throw new Error('Este pedido ya está completado.');
             if (!items.length) throw new Error('Elige al menos un producto para esta persona.');
-            const amount = items.reduce((sum, item) => sum + Math.round((item.price * item.quantity + (item.takeaway_fee || 0) * (item.takeaway_quantity || 0)) / item.quantity) * item.quantity, 0);
+            const amount = items.reduce((sum, item) => sum + item.price * item.quantity + (item.takeaway_fee || 0) * (item.takeaway_quantity || 0), 0);
             validatePayment(amount, method, received, receipt);
             await rpc('add_split_payment', {
                 p_id: order.id, p_version: order.version, p_label: label.trim(), p_items: items.map(i => ({ product_id: i.product_id, quantity: i.quantity })),
