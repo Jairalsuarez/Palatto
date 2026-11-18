@@ -524,7 +524,7 @@ function FullPayment({ app, order, close, view }: { app: Restaurant; order: Orde
       <span>Total a cobrar</span>
       {editingTotal
         ? <div className="pay-total-edit">
-            <input type="number" inputMode="decimal" autoFocus min="0.01" max="1000000" step="0.01" value={totalInput} onChange={event => { setTotalInput(event.target.value); setFormError('') }} aria-label="Total final"/>
+            <input type="number" inputMode="decimal" autoFocus min="0.01" max="1000000" step="0.01" value={totalInput} onChange={event => { setTotalInput(event.target.value); setFormError('') }} onKeyDown={event => { if (event.key !== 'Enter') return; event.preventDefault(); if (Number.isFinite(amount) && amount > 0) setEditingTotal(false) }} aria-label="Total final"/>
             <button type="button" className="icon-button" aria-label="Guardar total" onClick={() => { if (!Number.isFinite(amount) || amount <= 0) setFormError('El total debe ser un importe mayor a cero.'); else setEditingTotal(false) }}><Check size={18}/></button>
           </div>
         : <div className="pay-total-row">
