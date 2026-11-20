@@ -20,20 +20,40 @@ export type PushActivity =
   | 'supply_purchase_pending'
   | 'supply_purchase_received'
 
-export async function notifyActivity(event: PushActivity): Promise<{ sent: number; attempted: number; reason?: string } | null> {
+export interface PushDetails {
+  actorName?: string
+  orderId?: string
+  orderNumber?: number
+  customer?: string
+  takeaway?: boolean
+  items?: number
+  itemsSummary?: string
+  amount?: number
+  method?: 'efectivo' | 'transferencia'
+  kind?: 'ingreso' | 'gasto' | 'retiro' | 'cobro' | 'correccion' | 'transferencia'
+  reason?: string
+  label?: string
+  name?: string
+  paid?: boolean
+  received?: boolean
+}
+
+export async function notifyActivity(
+  event: PushActivity,
+  details?: PushDetails,
+): Promise<{ sent: number; attempted: number; reason?: string } | null> {
   if (!supabase) return null
   try {
     const { data, error } = await supabase.functions.invoke('palatto-push', {
-      body: { action: 'notify_activity', event },
+      body: { action: 'notify_activity', event, details },
     })
     if (error || data?.error) {
       console.error('No se pudo enviar la notificación push', error || data?.error)
       return null
     }
-    if (data?.sent === 0) console.warn('Notificación push sin destinatarios efectivos', data)
+    if (data?.sent === 0 && data?.reason) console.warn('Notificación push sin destinatarios efectivos', data)
     return data as { sent: number; attempted: number; reason?: string }
   } catch {
     return null
   }
 }
-

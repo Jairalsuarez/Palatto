@@ -13,6 +13,88 @@ function allowedEndpoint(value: string) {
   } catch { return false }
 }
 
+type Details = {
+  actorName?: string
+  orderId?: string
+  orderNumber?: number
+  customer?: string
+  takeaway?: boolean
+  items?: number
+  itemsSummary?: string
+  amount?: number
+  method?: string
+  kind?: string
+  reason?: string
+  label?: string
+  name?: string
+  paid?: boolean
+  received?: boolean
+}
+
+const moneyLabel = (value?: number) => typeof value === 'number' && Number.isFinite(value)
+  ? new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD' }).format(Math.abs(value) / 100)
+  : ''
+const methodLabel = (method?: string) => method === 'transferencia' ? 'transferencia' : 'efectivo'
+const orderLabel = (details: Details) => `Pedido${details.orderNumber ? ` #${details.orderNumber}` : ''}${details.customer && details.customer.toLowerCase() !== 'pedido' ? ` · ${details.customer}` : ''}`
+
+function buildNotice(event: string, details: Details) {
+  const amount = moneyLabel(details.amount)
+  switch (event) {
+    case 'order_created':
+      return {
+        title: 'Pedido nuevo',
+        body: `${orderLabel(details)} · ${details.takeaway ? 'Para llevar' : 'Para servir'}${details.itemsSummary ? ` · ${details.itemsSummary}` : ''}${amount ? ` · ${amount}` : ''}`,
+        push: true,
+      }
+    case 'order_updated':
+      return { title: 'Pedido actualizado', body: `${orderLabel(details)} se actualizó.`, push: false }
+    case 'order_paid':
+      return { title: 'Pedido cobrado', body: `${orderLabel(details)} · ${amount || 'Cobrado'} en ${methodLabel(details.method)}.`, push: false }
+    case 'split_payment':
+      return { title: 'Pago registrado', body: `${details.label || 'Una persona'} pagó ${amount || 'su parte'} del ${orderLabel(details).toLowerCase()}.`, push: false }
+    case 'order_deleted':
+      return { title: 'Pedido eliminado', body: `${orderLabel(details)} · ${details.reason || 'Sin motivo'}.`, push: false }
+    case 'product_saved':
+      return { title: 'Menú actualizado', body: `${details.name || 'Un producto'} fue ${details.reason || 'actualizado'}.`, push: false }
+    case 'product_photo_saved':
+      return { title: 'Foto del menú', body: 'Se actualizó una foto de producto.', push: false }
+    case 'cash_movement': {
+      const kind = details.kind === 'gasto' ? 'Gasto' : details.kind === 'retiro' ? 'Retiro' : details.kind === 'ingreso' ? 'Ingreso' : 'Movimiento de caja'
+      return {
+        title: kind === 'Movimiento de caja' ? kind : `${kind} registrado`,
+        body: `${amount || 'Movimiento'}${details.reason ? ` · ${details.reason}` : ''} · ${methodLabel(details.method)}.`,
+        push: ['ingreso', 'gasto', 'retiro'].includes(String(details.kind)),
+      }
+    }
+    case 'cash_transfer':
+      return { title: 'Transferencia de caja', body: `${amount || 'Transferencia'}${details.reason ? ` · ${details.reason}` : ''}.`, push: false }
+    case 'user_saved':
+      return { title: 'Equipo actualizado', body: `${details.name || 'Una cuenta'} fue ${details.reason || 'actualizada'}.`, push: false }
+    case 'password_changed':
+      return { title: 'Seguridad de cuenta', body: 'Se cambió la contraseña de una cuenta.', push: false }
+    case 'password_reset':
+      return { title: 'Seguridad de cuenta', body: 'El administrador generó una nueva contraseña temporal.', push: false }
+    case 'supply_saved':
+      return { title: 'Insumos actualizados', body: `${details.name || 'Un insumo'} fue actualizado en el catálogo.`, push: false }
+    case 'supply_movement':
+      return { title: 'Movimiento de insumo', body: `${details.name || 'Un insumo'} · ${details.reason || 'Entrada, consumo o ajuste'}.`, push: false }
+    case 'supply_purchase_created':
+      return {
+        title: 'Compra de insumo',
+        body: `${details.name || 'Un insumo'} · ${amount || 'Compra'} · ${details.paid ? 'Pagada' : 'Pendiente'}${details.received ? ' · Recibida' : ''}.`,
+        push: false,
+      }
+    case 'supply_purchase_paid':
+      return { title: 'Insumo pagado', body: `${details.name || 'Una compra'} se marcó como pagada. La caja no cambia.`, push: false }
+    case 'supply_purchase_pending':
+      return { title: 'Pago de insumo revertido', body: `${details.name || 'Una compra'} volvió a quedar pendiente.`, push: false }
+    case 'supply_purchase_received':
+      return { title: 'Insumo recibido', body: `${details.name || 'Una compra'} se marcó como recibida y actualizó el stock.`, push: false }
+    default:
+      return null
+  }
+}
+
 Deno.serve(async request => {
   if (request.method === 'OPTIONS') return new Response('ok', { headers })
   if (request.method !== 'POST') return reply({ error: 'Método no permitido' }, 405)
@@ -23,7 +105,7 @@ Deno.serve(async request => {
     const admin = createClient(url, Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!, { auth: { persistSession: false, autoRefreshToken: false } })
     const { data: { user }, error: authError } = await admin.auth.getUser(bearer.slice(7))
     if (authError || !user) return reply({ error: 'Sesión inválida' }, 401)
-    const { data: profile } = await admin.from('profiles').select('active,role').eq('id', user.id).single()
+    const { data: profile } = await admin.from('profiles').select('active,role,name').eq('id', user.id).single()
     if (!profile?.active) return reply({ error: 'Tu cuenta está desactivada' }, 403)
     const body = await request.json()
 
@@ -48,49 +130,60 @@ Deno.serve(async request => {
 
     if (body.action === 'notify_new_order' || body.action === 'notify_activity') {
       if (profile.role === 'visualizador') return reply({ error: 'No tienes permiso para crear pedidos' }, 403)
-      const event = body.action === 'notify_new_order' ? 'order_created' : body.event
-      const messages: Record<string, { title: string; body: string }> = {
-        order_created: { title: 'Pedido nuevo', body: 'Hay un pedido nuevo en la cola.' },
-        order_updated: { title: 'Pedido actualizado', body: 'Se guardaron cambios en un pedido.' },
-        order_paid: { title: 'Pedido cobrado', body: 'Se registró un cobro.' },
-        split_payment: { title: 'Pago registrado', body: 'Se registró un pago dividido.' },
-        order_deleted: { title: 'Pedido eliminado', body: 'Se eliminó un pedido pendiente.' },
-        product_saved: { title: 'Menú actualizado', body: 'Se guardó un cambio en el menú.' },
-        product_photo_saved: { title: 'Foto del menú actualizada', body: 'Se subió una foto de producto al menú.' },
-        cash_movement: { title: 'Movimiento de caja', body: 'Se registró un ingreso, gasto o retiro.' },
-        cash_transfer: { title: 'Transferencia de caja', body: 'Se registró una transferencia entre cajas.' },
-        user_saved: { title: 'Equipo actualizado', body: 'Se guardó un cambio en una cuenta del equipo.' },
-        password_changed: { title: 'Seguridad de cuenta', body: 'Se cambió la contraseña de una cuenta.' },
-        password_reset: { title: 'Seguridad de cuenta', body: 'El administrador generó una nueva contraseña temporal.' },
-        supply_saved: { title: 'Insumos actualizados', body: 'Se guardó un cambio en el catálogo de insumos.' },
-        supply_movement: { title: 'Movimiento de insumo', body: 'Se registró una entrada, consumo o ajuste.' },
-        supply_purchase_created: { title: 'Compra de insumo', body: 'Se registró una compra pendiente o pagada.' },
-        supply_purchase_paid: { title: 'Insumo pagado', body: 'Se marcó una compra como pagada.' },
-        supply_purchase_pending: { title: 'Pago de insumo revertido', body: 'Una compra volvió a quedar pendiente.' },
-        supply_purchase_received: { title: 'Insumo recibido', body: 'Se marcó una compra como recibida.' },
+      const event = String(body.action === 'notify_new_order' ? 'order_created' : body.event)
+      const details: Details = body.details && typeof body.details === 'object' ? body.details : {}
+      if (details.orderId && ['order_created', 'order_updated', 'order_paid', 'split_payment'].includes(event)) {
+        const { data: order } = await admin.from('orders').select('number,customer,takeaway,items').eq('id', details.orderId).maybeSingle()
+        if (order) {
+          details.orderNumber ??= Number(order.number)
+          details.customer ??= String(order.customer || '')
+          const items = Array.isArray(order.items) ? order.items as { name?: string; quantity?: number; takeaway_quantity?: number }[] : []
+          if (typeof details.takeaway !== 'boolean') {
+            details.takeaway = Boolean(order.takeaway) || items.some(item => Number(item.takeaway_quantity || 0) > 0)
+          }
+          details.items = items.reduce((sum, item) => sum + Number(item.quantity || 0), 0)
+          details.itemsSummary = items.map(item => `${Number(item.quantity || 0)} × ${String(item.name || 'Producto')}`).join(', ')
+        }
       }
-      const message = messages[event]
-      if (!message) return reply({ error: 'Tipo de aviso inválido' }, 400)
+      const notice = buildNotice(event, details)
+      if (!notice) return reply({ error: 'Tipo de aviso inválido' }, 400)
+
+      // Toda la actividad queda en el centro de notificaciones de la app.
+      const { error: insertError } = await admin.from('notifications').insert({
+        event,
+        title: notice.title,
+        body: notice.body,
+        order_id: typeof details.orderId === 'string' ? details.orderId : null,
+        actor: user.id,
+        actor_name: profile.name || details.actorName || null,
+      })
+      if (insertError) console.error('No se pudo guardar la notificación interna', insertError)
+      const notified = !insertError
+
+      // Solo los pedidos nuevos y los movimientos de caja se envían como push.
+      if (!notice.push) return reply({ ok: true, notified, sent: 0, reason: 'internal_only' })
+
       const publicKey = Deno.env.get('PALATTO_VAPID_PUBLIC_KEY')
       const privateKey = Deno.env.get('PALATTO_VAPID_PRIVATE_KEY')
       const subject = Deno.env.get('PALATTO_VAPID_SUBJECT') || 'mailto:admin@palatto.app'
-      if (!publicKey || !privateKey) return reply({ error: 'Notificaciones sin configurar' }, 503)
+      if (!publicKey || !privateKey) return reply({ ok: true, notified, sent: 0, reason: 'push_not_configured' })
       // Every active account should receive activity notifications, including
       // the account that performed the action. A user may have several devices.
       const { data: recipients, error: recipientsError } = await admin.from('profiles').select('id').eq('active', true)
       if (recipientsError) throw recipientsError
-      if (!recipients?.length) return reply({ sent: 0, attempted: 0, reason: 'no_recipients' })
+      if (!recipients?.length) return reply({ ok: true, notified, sent: 0, attempted: 0, reason: 'no_recipients' })
       const { data: subscriptions, error: subscriptionsError } = await admin.from('push_subscriptions').select('id,endpoint,p256dh,auth').in('user_id', recipients.map(person => person.id))
       if (subscriptionsError) throw subscriptionsError
-      if (!subscriptions?.length) return reply({ sent: 0, attempted: 0, reason: 'no_subscriptions' })
+      if (!subscriptions?.length) return reply({ ok: true, notified, sent: 0, attempted: 0, reason: 'no_subscriptions' })
       try { webpush.setVapidDetails(subject, publicKey, privateKey) }
-      catch { return reply({ error: 'Las claves VAPID configuradas no forman un par válido.' }, 503) }
+      catch { return reply({ ok: true, notified, sent: 0, reason: 'invalid_vapid' }) }
       const failureStatuses: number[] = []
       const results = await Promise.all((subscriptions || []).map(async subscription => {
         if (!allowedEndpoint(subscription.endpoint)) return false
         try {
           await webpush.sendNotification({ endpoint: subscription.endpoint, keys: { p256dh: subscription.p256dh, auth: subscription.auth } },
-            JSON.stringify({ ...message, url: '/' }), { TTL: 3600, urgency: 'high', timeout: 10000 })
+            JSON.stringify({ title: notice.title, body: notice.body, url: '/', orderId: typeof details.orderId === 'string' ? details.orderId : null }),
+            { TTL: 3600, urgency: 'high', timeout: 10000 })
           return true
         } catch (error) {
           const status = Number((error as { statusCode?: number }).statusCode || 0)
@@ -101,7 +194,7 @@ Deno.serve(async request => {
       }))
       const sent = results.filter(Boolean).length
       if (!sent) console.warn('Palatto push delivery failed', { attempted: subscriptions.length, statuses: failureStatuses })
-      return reply({ sent, attempted: subscriptions.length, ...(sent ? {} : { reason: 'delivery_failed', statuses: failureStatuses }) })
+      return reply({ ok: true, notified, sent, attempted: subscriptions.length, ...(sent ? {} : { reason: 'delivery_failed', statuses: failureStatuses }) })
     }
 
     return reply({ error: 'Acción desconocida' }, 400)

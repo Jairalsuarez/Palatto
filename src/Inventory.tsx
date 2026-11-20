@@ -59,7 +59,7 @@ export function Inventory({ app }: { app: Restaurant }) {
   const pendingTotal = pending.reduce((sum, item) => sum + item.total_amount, 0)
   const paidBySupply = paid.reduce((totals, item) => totals.set(item.supply_id, (totals.get(item.supply_id) || 0) + item.total_amount), new Map<string, number>())
   return <>
-    <div className="page-heading"><div><h1>Insumos</h1><p>Registra cada compra y marca si ya la pagaste.</p></div>{canEdit && <button className="btn btn-primary" onClick={() => setAdding(true)}><Plus size={18}/>Agregar insumo</button>}</div>
+    <div className="page-heading"><div><h1>Insumos</h1><p>Registra cada compra y marca si ya la pagaste. Los insumos no descuentan la caja: si sale dinero, regístralo como gasto o retiro.</p></div>{canEdit && <button className="btn btn-primary" onClick={() => setAdding(true)}><Plus size={18}/>Agregar insumo</button>}</div>
     {inventory.error && <div className="alert alert-error" role="alert">{inventory.error}</div>}
     {inventory.notice && <div className="alert alert-success" role="status">{inventory.notice}</div>}
     <div className="inventory-summary simple">
@@ -88,7 +88,7 @@ export function Inventory({ app }: { app: Restaurant }) {
     {paidBySupply.size > 0 && <section className="simple-spend-breakdown"><h2>Gastado por insumo</h2>{[...paidBySupply.entries()].sort((a,b)=>b[1]-a[1]).map(([id,total])=><div key={id}><span>{supplyById.get(id)?.name || 'Insumo'}</span><strong>{money(total)}</strong></div>)}</section>}
     {adding && <AddSupplyExpense app={app} supplies={inventory.supplies} onSave={inventory.registerPurchase} close={() => setAdding(false)}/>}
     {viewReceipt && <Modal title="Factura de la compra" close={() => setViewReceipt(null)}><img className="receipt-image" src={viewReceipt} alt="Factura de la compra"/></Modal>}
-    {confirmPending && <Modal title="¿Cambiar a pendiente?" close={() => setConfirmPending(null)}><div className="form-stack"><p>Este gasto se quitará del total pagado y se revertirá en caja. ¿Estás de acuerdo?</p><div className="form-actions"><button className="btn btn-ghost" onClick={() => setConfirmPending(null)}>Cancelar</button><button className="btn btn-primary" disabled={inventory.busy} onClick={async () => { const ok = await inventory.updatePurchase(confirmPending, 'unpaid'); if (ok) setConfirmPending(null) }}><Check size={17}/>Sí, dejar pendiente</button></div></div></Modal>}
+    {confirmPending && <Modal title="¿Cambiar a pendiente?" close={() => setConfirmPending(null)}><div className="form-stack"><p>La compra volverá a quedar pendiente. La caja no cambia porque los insumos no generan movimientos automáticos. ¿Estás de acuerdo?</p><div className="form-actions"><button className="btn btn-ghost" onClick={() => setConfirmPending(null)}>Cancelar</button><button className="btn btn-primary" disabled={inventory.busy} onClick={async () => { const ok = await inventory.updatePurchase(confirmPending, 'unpaid'); if (ok) setConfirmPending(null) }}><Check size={17}/>Sí, dejar pendiente</button></div></div></Modal>}
   </>
 }
 

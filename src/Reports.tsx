@@ -13,6 +13,7 @@ export function Reports({ app }: { app: Restaurant }) {
   const now = new Date()
   const days = rangeDays(range, now)
   const data = useMemo(() => analyze(app.data.orders, app.data.products, range, now, paidAt, app.data.order_payments), [app.data.orders, app.data.products, app.data.order_payments, range, paidAt])
+  const history = useMemo(() => analyze(app.data.orders, app.data.products, 'todo', now, paidAt, app.data.order_payments), [app.data.orders, app.data.products, app.data.order_payments, paidAt])
   const series = useMemo(() => range === 'hoy'
     ? data.byHour.map(hour => ({ label: `${displayNumber(String(hour.hour).padStart(2, '0'))}h`, value: hour.revenue, hint: `${displayNumber(String(hour.hour).padStart(2, '0'))}:00 · ${displayNumber(hour.orders)} pedidos` }))
     : dailyTrend(app.data.orders, Math.max(days.length, 1), now, paidAt).map(day => ({
@@ -26,6 +27,7 @@ export function Reports({ app }: { app: Restaurant }) {
   const drinksUnits = data.byProduct.filter(product => product.business === 'carreta').reduce((sum, product) => sum + product.quantity, 0)
   const drinksShare = data.revenue ? Math.round(data.drinksRevenue / data.revenue * 100) : 0
   const topProducts = data.byProduct.slice(0, 6)
+  const allTimeTop = [...history.byProduct].sort((a, b) => b.quantity - a.quantity || b.revenue - a.revenue).slice(0, 10)
   const methods = [
     { key: 'efectivo' as const, label: 'Efectivo', icon: Banknote, fill: 'green', value: data.byMethod.efectivo.revenue, count: data.byMethod.efectivo.orders },
     { key: 'transferencia' as const, label: 'Transferencia', icon: CreditCard, fill: 'blue', value: data.byMethod.transferencia.revenue, count: data.byMethod.transferencia.orders },
@@ -146,5 +148,22 @@ export function Reports({ app }: { app: Restaurant }) {
         <div className="split-row"><div className="split-label"><span><span>Margen</span></span><b>{displayNumber(data.revenue ? Math.round(profit / data.revenue * 100) : 0)}%</b></div></div>
       </section>
     </div>
+
+    <section className="report-card all-time-top">
+      <div className="report-card-heading">
+        <div><h2>Top 10 histórico</h2><p>Productos más vendidos hasta la fecha, sin importar el periodo elegido.</p></div>
+        <span className="pill">{displayNumber(history.itemsSold)} u.</span>
+      </div>
+      {allTimeTop.length
+        ? <div className="rank-list">{allTimeTop.map((product, index) => <div className="rank-row" key={product.productId}>
+            <span className={`rank-number ${index === 0 ? 'top' : ''}`}>{displayNumber(index + 1)}</span>
+            <div className="rank-content">
+              <div className="split-label"><span><span>{product.name}</span><small>{product.business === 'carreta' ? 'Aguas y colas' : product.category}</small></span><b>{money(product.revenue)}</b></div>
+              <span className="split-track"><i className="split-fill" style={{ width: `${Math.max(3, product.quantity / Math.max(allTimeTop[0].quantity, 1) * 100)}%` }}/></span>
+            </div>
+            <span className="rank-quantity">{displayNumber(product.quantity)} u.</span>
+          </div>)}</div>
+        : <p className="empty-line">Aún no hay productos vendidos.</p>}
+    </section>
   </div>
 }

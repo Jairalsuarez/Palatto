@@ -222,6 +222,14 @@ test('Un solo menú, una sola caja, numeración diaria y ajustes', async t => {
     ])
   })
 
+  await t.test('El reinicio de aguas y colas se guarda como ajuste', async () => {
+    await user('administrador')
+    await db.query("select set_app_setting('drinks_reset_at','2026-11-20T12:00:00.000Z')")
+    assert.equal(await scalar("select value from app_settings where key='drinks_reset_at'"), '2026-11-20T12:00:00.000Z')
+    await user('visualizador')
+    await assert.rejects(db.query("select set_app_setting('drinks_reset_at','otra')"), /Solo administración/)
+  })
+
   await t.test('El cobro acepta un recargo y guarda el comprobante', async () => {
     await user('mesera')
     const order = await scalar("select create_order('Mesa recargo','',$1::jsonb)", [mixedItems])

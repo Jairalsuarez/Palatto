@@ -241,7 +241,7 @@ export function useInventory(profile: Profile | null, role: Role) {
           : [...rows, { id: crypto.randomUUID(), ...input, name: input.name.trim(), stock: 0, created_at: now, updated_at: now } as Supply]
         writeLocal(SUPPLY_KEY, list)
       }
-      void notifyActivity('supply_saved')
+      void notifyActivity('supply_saved', { actorName: actorName(), name: input.name.trim(), paid: input.active })
       await load()
       setNotice(id ? 'Insumo actualizado.' : 'Insumo agregado.')
       return true
@@ -284,7 +284,13 @@ export function useInventory(profile: Profile | null, role: Role) {
         }
         writeLocal(MOVEMENT_KEY, [movement, ...readLocal<SupplyMovement[]>(MOVEMENT_KEY, [])].slice(0, 500))
       }
-      void notifyActivity('supply_movement')
+      void notifyActivity('supply_movement', {
+        actorName: actorName(),
+        name: supplies.find(supply => supply.id === supplyId)?.name || 'Insumo',
+        kind: kind === 'ajuste' ? undefined : kind === 'entrada' ? 'ingreso' : 'gasto',
+        amount: quantity,
+        reason: reason.trim(),
+      })
       await load()
       setNotice(kind === 'entrada' ? 'Entrada registrada.' : kind === 'salida' ? 'Consumo registrado.' : 'Stock ajustado.')
       return true
@@ -300,6 +306,7 @@ export function useInventory(profile: Profile | null, role: Role) {
     if (!canWrite(role)) { setError('Tu rol solo puede consultar el inventario.'); return false }
     if ((!input.supply_id && !input.supply_name?.trim()) || input.quantity <= 0 || input.unit_cost <= 0 || (input.paid && !input.payment_method)) { setError('Completa el nombre, el valor y el medio de pago.'); return false }
     setBusy(true); setError('')
+    const purchaseTotal = Math.round(input.quantity * input.unit_cost)
     try {
       if (source === 'supabase' && supabase) {
         let supplyId = input.supply_id
@@ -328,29 +335,21 @@ export function useInventory(profile: Profile | null, role: Role) {
         }
         if (!supply) throw new Error('El insumo ya no existe.')
         const now = new Date().toISOString()
-        const totalAmount = Math.round(input.quantity * input.unit_cost)
-        if (input.paid) {
-          const movement = {
-            id: crypto.randomUUID(), business: 'palatto' as const, amount: -totalAmount,
-            method: input.payment_method!, reason: `Compra de insumos · ${input.supplier.trim() || supply.name}`,
-            order_id: null, shift_id: null, actor: profile?.id || '', created_at: now,
-            transfer_id: null, kind: 'gasto' as const,
-          }
-          const movements = readLocal<Record<string, unknown>[]>('palatto.movements', [])
-          writeLocal('palatto.movements', [movement, ...movements].slice(0, 1000))
-        }
         if (input.received) {
           const next = applyMovement(supply, 'entrada', input.quantity)
           writeLocal(SUPPLY_KEY, supplies.map(row => row.id === input.supply_id ? next : row))
           const stockMovement: SupplyMovement = { id: crypto.randomUUID(), supply_id: input.supply_id, kind: 'entrada', quantity: input.quantity, reason: `Compra recibida · ${input.supplier || supply.name}`, actor: profile?.id || '', created_at: now }
           writeLocal(MOVEMENT_KEY, [stockMovement, ...readLocal<SupplyMovement[]>(MOVEMENT_KEY, [])].slice(0, 500))
         }
-        const purchase: SupplyPurchase = { ...input, id: crypto.randomUUID(), supplier: input.supplier.trim(), unit_cost: input.unit_cost, total_amount: totalAmount, created_by: profile?.id || '', created_at: now, paid_at: input.paid ? now : null, received_at: input.received ? now : null, receipt: input.receipt || null }
+        const purchase: SupplyPurchase = { ...input, id: crypto.randomUUID(), supplier: input.supplier.trim(), unit_cost: input.unit_cost, total_amount: purchaseTotal, created_by: profile?.id || '', created_at: now, paid_at: input.paid ? now : null, received_at: input.received ? now : null, receipt: input.receipt || null }
         writeLocal(PURCHASE_KEY, [purchase, ...readLocal<SupplyPurchase[]>(PURCHASE_KEY, [])].slice(0, 300))
       }
-      void notifyActivity('supply_purchase_created')
+      void notifyActivity('supply_purchase_created', {
+        actorName: actorName(), name: input.supply_name?.trim() || 'Insumo', amount: purchaseTotal,
+        paid: input.paid, received: input.received, reason: input.supplier.trim() || undefined,
+      })
       await load()
-      setNotice(input.paid ? 'Compra registrada como pagada.' : 'Compra pendiente registrada.')
+      setNotice(input.paid ? 'Compra registrada como pagada. El pago no afecta la caja.' : 'Compra pendiente registrada.')
       return true
     } catch (caught) { setError(caught instanceof Error ? caught.message : 'No se pudo registrar la compra.'); return false }
     finally { setBusy(false) }
@@ -368,28 +367,6 @@ export function useInventory(profile: Profile | null, role: Role) {
         const purchase = list.find(row => row.id === purchaseId)
         if (!purchase) throw new Error('La compra ya no existe.')
         const now = new Date().toISOString()
-        if (action === 'paid' && !purchase.paid) {
-          const supply = loadLocalSupplies().find(row => row.id === purchase.supply_id)
-          const movement = {
-            id: crypto.randomUUID(), business: 'palatto' as const, amount: -purchase.total_amount,
-            method: method || 'efectivo', reason: `Compra de insumos · ${purchase.supplier || supply?.name || 'Insumo'}`,
-            order_id: null, shift_id: null, actor: profile?.id || '', created_at: now,
-            transfer_id: null, kind: 'gasto' as const,
-          }
-          const movements = readLocal<Record<string, unknown>[]>('palatto.movements', [])
-          writeLocal('palatto.movements', [movement, ...movements].slice(0, 1000))
-        }
-        if (action === 'unpaid' && purchase.paid) {
-          const supply = loadLocalSupplies().find(row => row.id === purchase.supply_id)
-          const movement = {
-            id: crypto.randomUUID(), business: 'palatto' as const, amount: purchase.total_amount,
-            method: purchase.payment_method || 'efectivo', reason: `Reversión de pago · compra de ${purchase.supplier || supply?.name || 'Insumo'}`,
-            order_id: null, shift_id: null, actor: profile?.id || '', created_at: now,
-            transfer_id: null, kind: 'gasto' as const,
-          }
-          const movements = readLocal<Record<string, unknown>[]>('palatto.movements', [])
-          writeLocal('palatto.movements', [movement, ...movements].slice(0, 1000))
-        }
         const updated = { ...purchase, ...(action === 'paid' ? { paid: true, payment_method: method || 'efectivo', paid_at: now } : action === 'unpaid' ? { paid: false, payment_method: null, paid_at: null } : { received: true, received_at: now }) }
         if (action === 'received' && !purchase.received) {
           const supplies = loadLocalSupplies()
@@ -402,9 +379,9 @@ export function useInventory(profile: Profile | null, role: Role) {
         writeLocal(PURCHASE_KEY, list.map(row => row.id === purchaseId ? updated : row))
       }
       const activity = action === 'paid' ? 'supply_purchase_paid' : action === 'unpaid' ? 'supply_purchase_pending' : 'supply_purchase_received'
-      void notifyActivity(activity)
+      void notifyActivity(activity, { actorName: actorName(), paid: action === 'paid' })
       await load()
-      setNotice(action === 'paid' ? 'Compra marcada como pagada y registrada en gastos.' : action === 'unpaid' ? 'Compra devuelta a pendiente; se registró la reversión del pago.' : 'Pedido recibido y stock actualizado.')
+      setNotice(action === 'paid' ? 'Compra marcada como pagada. El pago no afecta la caja.' : action === 'unpaid' ? 'Compra devuelta a pendiente.' : 'Compra marcada como recibida y stock actualizado.')
       return true
     } catch (caught) { setError(caught instanceof Error ? caught.message : 'No se pudo actualizar la compra.'); return false }
     finally { setBusy(false) }

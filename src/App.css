@@ -64,6 +64,39 @@
 }
 .privacy-toggle:hover { color: var(--ink); background: var(--surface-2); }
 .privacy-toggle:active { transform: scale(.95); }
+
+.notification-button {
+  position: relative;
+  display: grid;
+  place-items: center;
+  width: 40px;
+  height: 40px;
+  border: 1px solid var(--line);
+  border-radius: 50%;
+  background: var(--surface);
+  color: var(--muted);
+  transition: color .16s ease, background .16s ease, transform .16s ease;
+}
+.notification-button:hover { color: var(--ink); background: var(--surface-2); }
+.notification-button:active { transform: scale(.95); }
+.notification-badge {
+  position: absolute;
+  top: -3px;
+  right: -3px;
+  display: grid;
+  place-items: center;
+  min-width: 19px;
+  height: 19px;
+  padding: 0 5px;
+  border: 2px solid var(--surface);
+  border-radius: 999px;
+  background: var(--red);
+  color: #fff;
+  font-size: .62rem;
+  font-style: normal;
+  font-weight: 800;
+  line-height: 1;
+}
 .privacy-values-hidden input[type="number"],
 .privacy-values-hidden input[type="date"] { filter: blur(7px); }
 
@@ -1449,6 +1482,34 @@ dialog.native-dialog.dialog-large {
   border-bottom: 1px solid color-mix(in oklab, var(--line) 55%, transparent);
 }
 .movement:last-child { border-bottom: 0; }
+.movement-open {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex: 1;
+  min-width: 0;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+.movement-open:hover strong { color: var(--copper-dark); }
+.movement-open > div { flex: 1; min-width: 0; }
+.movement-open > b { font-size: .9rem; font-variant-numeric: tabular-nums; white-space: nowrap; }
+.movement-detail { display: grid; gap: 14px; }
+.movement-detail-total { display: grid; gap: 2px; padding: 16px; border-radius: 16px; background: var(--surface-2); }
+.movement-detail-total small { color: var(--muted); font-size: .76rem; font-weight: 700; }
+.movement-detail-total strong { font-family: var(--font-display); font-size: 1.8rem; letter-spacing: -.03em; font-variant-numeric: tabular-nums; }
+.movement-detail-total.negative { background: var(--red-soft); }
+.movement-detail-total.positive { background: var(--green-soft); }
+.movement-detail-list { display: grid; margin: 0; }
+.movement-detail-list > div { display: flex; align-items: flex-start; justify-content: space-between; gap: 16px; padding: 10px 0; border-bottom: 1px solid color-mix(in oklab, var(--line) 60%, transparent); }
+.movement-detail-list > div:last-child { border-bottom: 0; }
+.movement-detail-list dt { color: var(--muted); font-size: .78rem; }
+.movement-detail-list dd { margin: 0; max-width: 65%; text-align: right; font-size: .86rem; font-weight: 650; }
 .movement-icon {
   display: grid;
   place-items: center;
@@ -1558,6 +1619,17 @@ dialog.native-dialog.dialog-large {
 .roles-guide > div { padding: 8px 0; border-top: 1px solid color-mix(in oklab, var(--line) 60%, transparent); }
 .roles-guide strong { font-size: .84rem; }
 .roles-guide p { color: var(--muted); font-size: .8rem; }
+
+.notifications-page { display: grid; gap: 14px; }
+.notification-list { list-style: none; display: grid; gap: 8px; margin: 0; padding: 0; }
+.notification-card { display: flex; align-items: flex-start; gap: 12px; padding: 14px; border: 1px solid var(--line); border-radius: 16px; background: var(--surface); }
+.notification-icon { display: grid; place-items: center; width: 38px; height: 38px; flex: 0 0 auto; border-radius: 12px; background: var(--copper-soft); color: var(--copper-dark); }
+.notification-card.is-cash .notification-icon { background: var(--green-soft); color: var(--green); }
+.notification-copy { display: grid; gap: 3px; min-width: 0; }
+.notification-copy strong { font-size: .9rem; line-height: 1.3; }
+.notification-copy p { margin: 0; color: var(--ink-soft); font-size: .82rem; line-height: 1.45; }
+.notification-copy small { color: var(--muted); font-size: .72rem; }
+.notification-copy .link-button { justify-self: start; margin-top: 3px; }
 
 .account { display: grid; gap: 14px; }
 .account-head { display: flex; align-items: center; gap: 12px; }

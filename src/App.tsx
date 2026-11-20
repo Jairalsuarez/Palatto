@@ -9,14 +9,14 @@ import { Modal } from './Modal'
 import { useRestaurant } from './lib/useRestaurant'
 import type { Restaurant } from './lib/useRestaurant'
 import { itemIsDrink, itemTotal, canCash, canEdit, canMenu, canWrite, cents, displayNumber, displayNumericText, labels, money, orderService, orderSplit, orderTotal, roles, setSensitiveValuesHidden, total } from './lib/domain'
-import type { Business, Item, Method, MovementKind, Order, OrderPayment, Product, Profile, Role } from './lib/domain'
+import type { Business, Item, Method, Movement, MovementKind, Order, OrderPayment, Product, Profile, Role } from './lib/domain'
 import { analyze, dayKey, paymentTimes } from './lib/analytics'
 import { OrderList } from './OrderList'
 import { Reports } from './Reports'
 import { Inventory } from './Inventory'
 import './App.css'
 
-type Page = 'pedidos' | 'nuevo' | 'cajas' | 'menu' | 'equipo' | 'reportes' | 'insumos' | 'cuenta' | 'resumen' | 'bebidas'
+type Page = 'pedidos' | 'nuevo' | 'cajas' | 'menu' | 'equipo' | 'reportes' | 'insumos' | 'cuenta' | 'resumen' | 'bebidas' | 'notificaciones'
 type Route = { page: Page; cashBusiness: Business | null }
 
 const number = (n: number) => displayNumber(n)
@@ -24,6 +24,7 @@ const movementKindLabel = (kind: MovementKind) => ({ ingreso: 'Ingreso', gasto: 
 const dateTime = (d: string) => displayNumericText(new Date(d).toLocaleString('es-EC', { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' }))
 const today = () => displayNumericText(new Date().toLocaleDateString('es-EC', { weekday: 'long', day: 'numeric', month: 'long' }))
 const drinksTrackingStart = '2026-11-13' // Inicio del seguimiento acumulado de aguas y colas.
+const notificationsSeenKey = 'palatto:notifications-seen'
 
 function Empty({ title, children, action }: { title: string; children: ReactNode; action?: ReactNode }) {
   return <div className="empty">
@@ -65,13 +66,15 @@ export default function App() {
   const [editing, setEditing] = useState<Order | undefined>()
   const [cashBusiness, setCashBusiness] = useState<Business | null>(null)
   const [detail, setDetail] = useState<string | null>(null)
-  const [payRequest, setPayRequest] = useState<string | null>(null)
+  const [payRequest, setPayRequest] = useState<string | Order | null>(null)
   const [history, setHistory] = useState<Route[]>([])
   const [hideValues, setHideValues] = useState(() => {
     const hidden = sessionStorage.getItem('palatto-hide-values') === '1'
     setSensitiveValuesHidden(hidden)
     return hidden
   })
+  const [notificationsSeen, setNotificationsSeen] = useState(() => localStorage.getItem(notificationsSeenKey) || '')
+  const unreadNotifications = app.data.notifications.filter(item => !notificationsSeen || item.created_at > notificationsSeen).length
   const historyInitialized = useRef(false)
 
   useEffect(() => { setSensitiveValuesHidden(hideValues) }, [hideValues])
@@ -172,14 +175,24 @@ export default function App() {
     setHistory([])
     app.setError('')
   }
-  function paySaved(id: string) {
+  function paySaved(order: string | Order) {
     setEditing(undefined)
     setDetail(null)
     setPage('pedidos')
     setCashBusiness(null)
     setHistory([])
-    setPayRequest(id)
+    setPayRequest(order)
     app.setError('')
+  }
+  function openOrder(id: string) {
+    setDetail(id)
+    go('pedidos')
+  }
+  function openNotifications() {
+    const seen = new Date().toISOString()
+    localStorage.setItem(notificationsSeenKey, seen)
+    setNotificationsSeen(seen)
+    go('notificaciones')
   }
 
   return <div className={`app-shell ${hideValues ? 'privacy-values-hidden' : ''}`}>
@@ -196,6 +209,10 @@ export default function App() {
           setSensitiveValuesHidden(next)
           setHideValues(next)
         }}>{hideValues ? <Eye size={19}/> : <EyeOff size={19}/>}</button>
+        <button className="notification-button" onClick={openNotifications} aria-label={unreadNotifications ? `Notificaciones, ${unreadNotifications} sin leer` : 'Notificaciones'}>
+          <Bell size={19}/>
+          {unreadNotifications > 0 && <i className="notification-badge">{displayNumber(unreadNotifications > 9 ? '9+' : unreadNotifications)}</i>}
+        </button>
         <button className="avatar-button" onClick={() => navigate('cuenta')} aria-label="Tu cuenta y ajustes">
           {app.profile.name.slice(0, 1)}
         </button>
@@ -209,13 +226,14 @@ export default function App() {
       </div>}
 
       {page === 'pedidos' && <Home app={app} detail={detail} setDetail={setDetail} payRequest={payRequest} payHandled={() => setPayRequest(null)} onNew={() => navigate('nuevo')} onDrinks={() => navigate('bebidas')} onSummary={() => navigate('resumen')} onCash={business => go('cajas', business)} onEdit={edit}/>}
-      {page === 'resumen' && <DailySummary app={app} onCash={business => go('cajas', business)}/>}
+      {page === 'resumen' && <DailySummary app={app} onCash={business => go('cajas', business)} onOrder={openOrder}/>}
       {page === 'bebidas' && <DrinksSalesPage app={app} back={back}/>}
+      {page === 'notificaciones' && <Notifications app={app} back={back} onOrder={openOrder}/>}
       {page === 'reportes' && <Reports app={app}/>}
       {page === 'insumos' && <Inventory app={app}/>}
       {page === 'nuevo' && canWrite(app.role) && <OrderEditor key={editing?.id || 'new'} app={app} order={editing} back={back} done={finishOrder} pay={paySaved}/>}
       {page === 'cajas' && cashBusiness
-        ? <Cash app={app} back={back}/>
+        ? <Cash app={app} back={back} onOrder={openOrder}/>
         : null}
       {page === 'menu' && <Menu app={app}/>}
       {page === 'equipo' && app.role === 'superadmin' && <Team app={app}/>}
@@ -251,7 +269,7 @@ export default function App() {
 
 /* ---------------------------------------------------------------- Inicio */
 
-function Home({ app, detail, setDetail, payRequest, payHandled, onNew, onDrinks, onSummary, onCash, onEdit }: { app: Restaurant; detail: string | null; setDetail: (id: string | null) => void; payRequest: string | null; payHandled: () => void; onNew: () => void; onDrinks: () => void; onSummary: () => void; onCash: (business: Business) => void; onEdit: (order: Order) => void }) {
+function Home({ app, detail, setDetail, payRequest, payHandled, onNew, onDrinks, onSummary, onCash, onEdit }: { app: Restaurant; detail: string | null; setDetail: (id: string | null) => void; payRequest: string | Order | null; payHandled: () => void; onNew: () => void; onDrinks: () => void; onSummary: () => void; onCash: (business: Business) => void; onEdit: (order: Order) => void }) {
   const [filter, setFilter] = useState<'activos' | 'completados' | 'todos'>('activos')
   const [search, setSearch] = useState('')
   const [payment, setPayment] = useState<{ order: Order; split: boolean } | null>(null)
@@ -263,12 +281,13 @@ function Home({ app, detail, setDetail, payRequest, payHandled, onNew, onDrinks,
   }).sort((a, b) => filter === 'completados'
     ? (b.paid_at || b.created_at).localeCompare(a.paid_at || a.created_at)
     : a.created_at.localeCompare(b.created_at))
-  const paymentOrder = app.data.orders.find(order => order.id === payment?.order.id)
+  const latestPaymentOrder = app.data.orders.find(order => order.id === payment?.order.id)
+  const paymentOrder = payment && (!latestPaymentOrder || latestPaymentOrder.version < payment.order.version) ? payment.order : latestPaymentOrder
   const detailOrder = app.data.orders.find(order => order.id === detail)
 
   useEffect(() => {
     if (!payRequest) return
-    const order = app.data.orders.find(item => item.id === payRequest)
+    const order = typeof payRequest === 'string' ? app.data.orders.find(item => item.id === payRequest) : payRequest
     if (order) {
       setPayment({ order, split: false })
       payHandled()
@@ -308,7 +327,7 @@ function Home({ app, detail, setDetail, payRequest, payHandled, onNew, onDrinks,
         try { setReceipt(await app.receiptUrl(path)) } catch (error) { app.setError((error as Error).message) }
       }}/>}
 
-    {paymentOrder && <Payment app={app} order={paymentOrder} initialSplit={payment?.split || false} close={() => setPayment(null)}
+    {paymentOrder && <Payment key={`${paymentOrder.id}-${paymentOrder.version}`} app={app} order={paymentOrder} initialSplit={payment?.split || false} close={() => setPayment(null)}
       view={() => { setPayment(null); setDetail(paymentOrder.id) }}/>}
 
     {receipt && <Modal title="Comprobante de transferencia" close={() => setReceipt(null)}>
@@ -317,26 +336,36 @@ function Home({ app, detail, setDetail, payRequest, payHandled, onNew, onDrinks,
   </>
 }
 
+function drinksTrackingSince(app: Restaurant): number {
+  const reset = app.data.settings.find(setting => setting.key === 'drinks_reset_at')?.value
+  const fallback = new Date(`${drinksTrackingStart}T00:00:00-05:00`).getTime()
+  if (!reset) return fallback
+  const time = new Date(reset).getTime()
+  return Number.isFinite(time) ? time : fallback
+}
+
 function accumulatedDrinkSales(app: Restaurant) {
+  const since = drinksTrackingSince(app)
+  const included = (value: string) => new Date(value).getTime() >= since
   const sales = app.data.orders.reduce((sum, order) => {
     const orderPayments = app.data.order_payments.filter(payment => payment.order_id === order.id)
     if (orderPayments.length) {
       for (const payment of orderPayments) {
-        if (reportDate(payment.created_at) < drinksTrackingStart) continue
+        if (!included(payment.created_at)) continue
         const amount = payment.items.filter(itemIsDrink).reduce((value, item) => value + itemTotal(item), 0)
         if (payment.method === 'efectivo') sum.cash += amount
         else sum.transfer += amount
       }
       return sum
     }
-    if (!order.paid || !order.method || reportDate(order.paid_at || order.created_at) < drinksTrackingStart) return sum
+    if (!order.paid || !order.method || !included(order.paid_at || order.created_at)) return sum
     const amount = orderSplit(order).carreta
     if (order.method === 'efectivo') sum.cash += amount
     else sum.transfer += amount
     return sum
   }, { cash: 0, transfer: 0 })
   for (const movement of app.data.movements) {
-    if (reportDate(movement.created_at) < drinksTrackingStart || movement.business !== 'carreta' || movement.order_id) continue
+    if (!included(movement.created_at) || movement.business !== 'carreta' || movement.order_id) continue
     if (movement.kind !== 'cobro' && movement.kind !== 'correccion') continue
     if (movement.method === 'efectivo') sales.cash += movement.amount
     else sales.transfer += movement.amount
@@ -345,8 +374,11 @@ function accumulatedDrinkSales(app: Restaurant) {
 }
 
 function DrinksSalesPage({ app, back }: { app: Restaurant; back: () => void }) {
+  const [confirming, setConfirming] = useState(false)
   const sales = accumulatedDrinkSales(app)
   const salesTotal = sales.cash + sales.transfer
+  const reset = app.data.settings.find(setting => setting.key === 'drinks_reset_at')?.value
+  const canReset = app.role === 'superadmin' || app.role === 'administrador'
 
   return <>
     <div className="subpage-bar">
@@ -360,6 +392,20 @@ function DrinksSalesPage({ app, back }: { app: Restaurant; back: () => void }) {
         <p><span><CreditCard size={16}/>Transferencia</span><b>{money(sales.transfer)}</b></p>
       </div>
     </section>
+    {reset && <p className="tiny center">Conteo reiniciado el {dateTime(reset)}.</p>}
+    {canReset && <button className="btn btn-ghost btn-block" onClick={() => setConfirming(true)}><History size={17}/>Reiniciar conteo a cero</button>}
+    {confirming && <Modal title="Reiniciar conteo" close={() => setConfirming(false)}>
+      <div className="form-stack">
+        <div className="alert alert-danger">
+          <History size={20}/>
+          <div><strong>El conteo de aguas y colas volverá a cero</strong><p>Los pedidos anteriores no se borran ni cambian la caja. Solo dejan de sumarse en este conteo.</p></div>
+        </div>
+        <button className="btn btn-primary btn-block btn-lg" disabled={app.busy} onClick={async () => {
+          if (await app.setSetting('drinks_reset_at', new Date().toISOString())) setConfirming(false)
+        }}>{app.busy ? 'Reiniciando…' : 'Sí, reiniciar conteo'}<Check size={18}/></button>
+        <button className="btn btn-ghost btn-block" disabled={app.busy} onClick={() => setConfirming(false)}>Cancelar</button>
+      </div>
+    </Modal>}
   </>
 }
 
@@ -702,7 +748,7 @@ function ReceiptUpload({ app, value, onChange, title = 'Subir comprobante', hint
 
 /* ------------------------------------------------------------ Nuevo pedido */
 
-function OrderEditor({ app, order, back, done, pay }: { app: Restaurant; order?: Order; back: () => void; done: () => void; pay: (id: string) => void }) {
+function OrderEditor({ app, order, back, done, pay }: { app: Restaurant; order?: Order; back: () => void; done: () => void; pay: (order: string | Order) => void }) {
   const [picker, setPicker] = useState(false)
   const [showNotes, setShowNotes] = useState(Boolean(order?.notes))
   const [items, setItems] = useState<Item[]>(order?.items || [])
@@ -873,13 +919,14 @@ function ProductPicker({ app, selected, add }: { app: Restaurant; selected: Item
 
 /* ----------------------------------------------------------------- Cajas */
 
-function Cash({ app, back, business = 'palatto' }: { app: Restaurant; back: () => void; business?: Business }) {
+function Cash({ app, back, business = 'palatto', onOrder }: { app: Restaurant; back: () => void; business?: Business; onOrder: (id: string) => void }) {
   const [form, setForm] = useState<'ingreso' | 'gasto' | 'retiro' | null>(null)
   const [method, setMethod] = useState<Method>('efectivo')
   const [amount, setAmount] = useState('')
   const [reason, setReason] = useState('')
   const [receipt, setReceipt] = useState<string | null>(null)
   const [viewReceipt, setViewReceipt] = useState<string | null>(null)
+  const [selected, setSelected] = useState<Movement | null>(null)
 
   const cashOnly = business === 'carreta'
   const movements = app.data.movements.filter(movement => movement.business === business && (!cashOnly || movement.method === 'efectivo')).sort((a, b) => b.created_at.localeCompare(a.created_at))
@@ -899,6 +946,11 @@ function Cash({ app, back, business = 'palatto' }: { app: Restaurant; back: () =
 
   async function showReceipt(path: string) {
     try { setViewReceipt(await app.receiptUrl(path)) } catch (error) { app.setError((error as Error).message) }
+  }
+
+  function openMovement(movement: Movement) {
+    if (movement.order_id) { onOrder(movement.order_id); return }
+    setSelected(movement)
   }
 
   return <>
@@ -932,10 +984,12 @@ function Cash({ app, back, business = 'palatto' }: { app: Restaurant; back: () =
         ? <p className="empty-line">Aquí verás cada ingreso, gasto, retiro y cobro.</p>
         : <ul className="movement-list">
             {movements.map(movement => <li className="movement" key={movement.id}>
-              <span className={`movement-icon ${movement.amount < 0 ? 'out' : ''}`}>{movement.amount < 0 ? <ArrowUpRight size={18}/> : <ArrowRight size={18}/>}</span>
-              <div><strong>{movement.reason}</strong><small>{movementKindLabel(movement.kind)} · {dateTime(movement.created_at)}{cashOnly ? ' · Efectivo' : ` · ${movement.method === 'efectivo' ? 'Efectivo' : 'Transferencia'}`}</small></div>
+              <button type="button" className="movement-open" onClick={() => openMovement(movement)} aria-label={`Ver detalle de ${movement.reason}`}>
+                <span className={`movement-icon ${movement.amount < 0 ? 'out' : ''}`}>{movement.amount < 0 ? <ArrowUpRight size={18}/> : <ArrowRight size={18}/>}</span>
+                <div><strong>{movement.reason}</strong><small>{movementKindLabel(movement.kind)} · {dateTime(movement.created_at)}{cashOnly ? ' · Efectivo' : ` · ${movement.method === 'efectivo' ? 'Efectivo' : 'Transferencia'}`}</small></div>
+                <b className={movement.amount < 0 ? 'negative' : 'positive'}>{movement.amount > 0 ? '+' : '−'}{money(Math.abs(movement.amount))}</b>
+              </button>
               {movement.receipt && <button type="button" className="movement-receipt" onClick={() => void showReceipt(movement.receipt!)}>Factura</button>}
-              <b className={movement.amount < 0 ? 'negative' : 'positive'}>{movement.amount > 0 ? '+' : '−'}{money(Math.abs(movement.amount))}</b>
             </li>)}
           </ul>}
     </section>
@@ -961,10 +1015,34 @@ function Cash({ app, back, business = 'palatto' }: { app: Restaurant; back: () =
       </form>
     </Modal>}
 
+    {selected && <MovementDetail app={app} movement={selected} close={() => setSelected(null)} onOrder={onOrder} onReceipt={path => { setSelected(null); void showReceipt(path) }}/>}
+
     {viewReceipt && <Modal title="Factura del gasto" close={() => setViewReceipt(null)}>
       <img className="receipt-image" src={viewReceipt} alt="Factura del movimiento"/>
     </Modal>}
   </>
+}
+
+function MovementDetail({ app, movement, close, onOrder, onReceipt }: { app: Restaurant; movement: Movement; close: () => void; onOrder: (id: string) => void; onReceipt: (path: string) => void }) {
+  const order = movement.order_id ? app.data.orders.find(item => item.id === movement.order_id) : undefined
+  const actor = movement.actor ? app.data.profiles.find(person => person.id === movement.actor) : undefined
+  return <Modal title={movementKindLabel(movement.kind)} close={close} page>
+    <div className="movement-detail">
+      <div className={`movement-detail-total ${movement.amount < 0 ? 'negative' : 'positive'}`}>
+        <small>{movement.amount < 0 ? 'Salida de caja' : 'Entrada a caja'}</small>
+        <strong>{movement.amount < 0 ? '−' : '+'}{money(Math.abs(movement.amount))}</strong>
+      </div>
+      <dl className="movement-detail-list">
+        <div><dt>Motivo</dt><dd>{movement.reason}</dd></div>
+        <div><dt>Medio de pago</dt><dd>{movement.method === 'efectivo' ? 'Efectivo' : 'Transferencia'}</dd></div>
+        <div><dt>Fecha</dt><dd>{dateTime(movement.created_at)}</dd></div>
+        {actor && <div><dt>Registrado por</dt><dd>{actor.name}</dd></div>}
+        {order && <div><dt>Pedido</dt><dd>#{number(order.number)} · {order.customer}</dd></div>}
+      </dl>
+      {order && <button className="btn btn-primary btn-block" onClick={() => { close(); onOrder(order.id) }}><Receipt size={17}/>Ver pedido #{number(order.number)}</button>}
+      {movement.receipt && <button className="btn btn-ghost btn-block" onClick={() => onReceipt(movement.receipt!)}><Receipt size={17}/>Ver factura</button>}
+    </div>
+  </Modal>
 }
 
 const reportDate = (value: string) => new Intl.DateTimeFormat('en-CA', { timeZone: 'America/Guayaquil', year: 'numeric', month: '2-digit', day: '2-digit' }).format(new Date(value))
@@ -992,7 +1070,9 @@ function DailyReport({ app, business = 'palatto' }: { app: Restaurant; business?
   </details>
 }
 
-function DailySummary({ app, onCash }: { app: Restaurant; onCash: (business: Business) => void }) {
+function DailySummary({ app, onCash, onOrder }: { app: Restaurant; onCash: (business: Business) => void; onOrder: (id: string) => void }) {
+  const [selected, setSelected] = useState<Movement | null>(null)
+  const [viewReceipt, setViewReceipt] = useState<string | null>(null)
   const now = new Date()
   const summary = analyze(app.data.orders, app.data.products, 'hoy', now, paymentTimes(app.data.movements), app.data.order_payments)
   const todayKey = reportDate(now.toISOString())
@@ -1023,12 +1103,19 @@ function DailySummary({ app, onCash }: { app: Restaurant; onCash: (business: Bus
       <div className="section-heading"><h2>Movimientos de hoy</h2><span className="pill">{displayNumber(movements.length)}</span></div>
       {!movements.length ? <div className="empty"><div className="empty-icon"><Receipt size={26}/></div><h3>Aún no hay movimientos</h3><p>Los cobros y gastos aparecerán aquí en cuanto se registren.</p></div> : <div className="movement-list">
         {movements.map(movement => <div className="movement" key={movement.id}>
-          <span className={`movement-icon ${movement.amount < 0 ? 'out' : ''}`}>{movement.amount < 0 ? <ArrowDownLeft size={17}/> : <ArrowUpRight size={17}/>}</span>
-          <div><strong>{movement.reason}</strong><small>{movementKindLabel(movement.kind)} · {dateTime(movement.created_at)} · {movement.method === 'efectivo' ? 'Efectivo' : 'Transferencia'}</small></div>
-          <b className={movement.amount < 0 ? 'negative' : 'positive'}>{movement.amount < 0 ? '−' : '+'}{money(Math.abs(movement.amount))}</b>
+          <button type="button" className="movement-open" onClick={() => movement.order_id ? onOrder(movement.order_id) : setSelected(movement)} aria-label={`Ver detalle de ${movement.reason}`}>
+            <span className={`movement-icon ${movement.amount < 0 ? 'out' : ''}`}>{movement.amount < 0 ? <ArrowDownLeft size={17}/> : <ArrowUpRight size={17}/>}</span>
+            <div><strong>{movement.reason}</strong><small>{movementKindLabel(movement.kind)} · {dateTime(movement.created_at)} · {movement.method === 'efectivo' ? 'Efectivo' : 'Transferencia'}</small></div>
+            <b className={movement.amount < 0 ? 'negative' : 'positive'}>{movement.amount < 0 ? '−' : '+'}{money(Math.abs(movement.amount))}</b>
+          </button>
         </div>)}
       </div>}
     </section>
+    {selected && <MovementDetail app={app} movement={selected} close={() => setSelected(null)} onOrder={onOrder} onReceipt={async path => {
+      setSelected(null)
+      try { setViewReceipt(await app.receiptUrl(path)) } catch (error) { app.setError((error as Error).message) }
+    }}/>}
+    {viewReceipt && <Modal title="Factura del movimiento" close={() => setViewReceipt(null)}><img className="receipt-image" src={viewReceipt} alt="Factura del movimiento"/></Modal>}
   </div>
 }
 
@@ -1276,6 +1363,41 @@ function PasswordChange({ app, mandatory = false }: { app: Restaurant; mandatory
     <div className="signin-heading"><h1>Crea tu contraseña</h1><p>Tu contraseña temporal es de un solo uso. Elige una personal para continuar.</p></div>
     {form}
   </section></main>
+}
+
+function notificationIcon(event: string) {
+  if (event === 'cash_movement' || event === 'cash_transfer') return <Banknote size={18}/>
+  if (event.startsWith('order') || event === 'split_payment') return <ClipboardList size={18}/>
+  if (event.startsWith('supply')) return <PackageOpen size={18}/>
+  if (event.startsWith('product')) return <BookOpen size={18}/>
+  if (event.startsWith('user') || event.startsWith('password')) return <Users size={18}/>
+  return <Bell size={18}/>
+}
+
+function Notifications({ app, back, onOrder }: { app: Restaurant; back: () => void; onOrder: (id: string) => void }) {
+  const items = app.data.notifications
+  return <div className="notifications-page">
+    <div className="subpage-bar">
+      <button className="back-button" onClick={back} aria-label="Volver"><ChevronLeft size={22}/><span>Volver</span></button>
+      <div><p className="eyebrow">Actividad de Palatto</p><h1>Notificaciones</h1></div>
+    </div>
+    {!items.length
+      ? <Empty title="Sin notificaciones">Aquí verás los pedidos, cobros, movimientos de caja, menú e insumos a medida que ocurran.</Empty>
+      : <ul className="notification-list">
+          {items.map(item => {
+            const order = item.order_id ? app.data.orders.find(order => order.id === item.order_id) : undefined
+            return <li className={`notification-card ${item.event === 'cash_movement' ? 'is-cash' : ''}`} key={item.id}>
+              <span className="notification-icon">{notificationIcon(item.event)}</span>
+              <div className="notification-copy">
+                <strong>{item.title}</strong>
+                <p>{item.body}</p>
+                <small>{item.actor_name ? `${item.actor_name} · ` : ''}{dateTime(item.created_at)}</small>
+                {order && <button type="button" className="link-button" onClick={() => onOrder(order.id)}>Ver pedido #{number(order.number)}<ArrowRight size={15}/></button>}
+              </div>
+            </li>
+          })}
+        </ul>}
+  </div>
 }
 
 function AccountPage({ app, installPrompt, installed, navigate, onInstall }: { app: Restaurant; installPrompt: Event | null; installed: boolean; navigate: (page: Page) => void; onInstall: () => void }) {

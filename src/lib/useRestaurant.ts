@@ -3,8 +3,8 @@ import { supabase } from './supabase';
 import { canCash, canEdit, canMenu, canWrite, total, validatePayment } from './domain';
 import type { Business, Data, Item, Method, MovementKind, Order, Product, Profile, Role } from './domain';
 import { notifyActivity } from './push';
-import type { PushActivity } from './push';
-const empty: Data = { products: [], orders: [], shifts: [], movements: [], order_payments: [], profiles: [], audits: [] };
+import type { PushActivity, PushDetails } from './push';
+const empty: Data = { products: [], orders: [], shifts: [], movements: [], order_payments: [], profiles: [], audits: [], settings: [], notifications: [] };
 export function useRestaurant() {
     const [profile, setProfile] = useState<Profile | null>(null);
     const [data, setData] = useState<Data>(empty);
@@ -31,7 +31,8 @@ export function useRestaurant() {
         if (!supabase)
             return;
         const version = ++refreshVersion.current;
-        const { data: { user } } = await supabase.auth.getUser();
+        const { data: { session } } = await supabase.auth.getSession();
+        const user = session?.user;
         if (version !== refreshVersion.current)
             return;
         if (!user) {
@@ -40,23 +41,35 @@ export function useRestaurant() {
             setLoading(false);
             return;
         }
-        const results = await Promise.all(['profiles', 'products', 'orders', 'shifts', 'movements', 'order_payments', 'audits'].map(async (table) => {
+        async function loadRows(table: string, optional = false) {
             const rows: Record<string, unknown>[] = [];
-            for (let offset = 0;; offset += 1000) {
-                const { data: batch, error } = await supabase!.from(table).select('*').order('id').range(offset, offset + 999);
-                if (error)
+            try {
+                for (let offset = 0;; offset += 1000) {
+                    const { data: batch, error } = await supabase!.from(table).select('*').order('id').range(offset, offset + 999);
+                    if (error)
+                        throw error;
+                    rows.push(...batch);
+                    if (batch.length < 1000)
+                        break;
+                }
+            }
+            catch (error) {
+                if (!optional)
                     throw error;
-                rows.push(...batch);
-                if (batch.length < 1000)
-                    break;
             }
             return rows;
-        }));
+        }
+        const [results, optionalRows] = await Promise.all([
+            Promise.all(['profiles', 'products', 'orders', 'shifts', 'movements', 'order_payments', 'audits'].map(table => loadRows(table))),
+            Promise.all([loadRows('app_settings', true), loadRows('notifications', true)]),
+        ]);
         if (version !== refreshVersion.current)
             return;
         const [profiles, products, orders, shifts, movements, orderPayments, audits] = results;
+        const [settings, notifications] = optionalRows;
         orders.sort((a, b) => String(a.created_at).localeCompare(String(b.created_at)) || Number(a.number) - Number(b.number));
         products.sort((a, b) => String(a.name).localeCompare(String(b.name)));
+        notifications.sort((a, b) => String(b.created_at).localeCompare(String(a.created_at)));
         const me = profiles.find(p => p.id === user.id) as Profile | undefined;
         if (!me || !me.active) {
             setProfile(null);
@@ -64,20 +77,25 @@ export function useRestaurant() {
             throw new Error('Tu usuario no tiene un perfil activo. Solicita acceso al superadmin.');
         }
         setProfile(me);
-        setData({ profiles, products, orders, shifts, movements, order_payments: orderPayments, audits } as unknown as Data);
+        setData({ profiles, products, orders, shifts, movements, order_payments: orderPayments, audits, settings, notifications: notifications.slice(0, 300) } as unknown as Data);
         setLoading(false);
     }, []);
     useEffect(() => {
         if (!supabase)
             return;
         const load = () => { void refresh().catch(e => { setError(e.message); setLoading(false); }); };
+        let realtimeTimer: number | undefined;
+        const scheduleLoad = () => {
+            window.clearTimeout(realtimeTimer);
+            realtimeTimer = window.setTimeout(load, 400);
+        };
         load();
         const { data: listener } = supabase.auth.onAuthStateChange(() => { setTimeout(load, 0); });
-        const channel = supabase.channel('restaurant').on('postgres_changes', { event: '*', schema: 'public' }, load).subscribe();
-        const timer = setInterval(load, 20000);
-        return () => { listener.subscription.unsubscribe(); void supabase!.removeChannel(channel); clearInterval(timer); };
+        const channel = supabase.channel('restaurant').on('postgres_changes', { event: '*', schema: 'public' }, scheduleLoad).subscribe();
+        const timer = setInterval(load, 30000);
+        return () => { listener.subscription.unsubscribe(); void supabase!.removeChannel(channel); clearInterval(timer); window.clearTimeout(realtimeTimer); };
     }, [refresh]);
-    async function run(action: () => Promise<void> | void, message: string | (() => string), activity?: PushActivity) {
+    async function run(action: () => Promise<void> | void, message: string | (() => string), activity?: PushActivity | (() => { event: PushActivity; details?: PushDetails }), waitForRefresh = false) {
         if (lock.current)
             return false;
         lock.current = true;
@@ -85,13 +103,20 @@ export function useRestaurant() {
         setError('');
         try {
             await action();
-            if (activity) void notifyActivity(activity);
-            try {
-                await refresh();
-            } catch {
-                setError('Guardado. No se pudo actualizar la pantalla; no repitas la operación.');
-                setLoading(false);
+            if (activity) {
+                try {
+                    const resolved = typeof activity === 'function' ? activity() : { event: activity, details: undefined };
+                    void notifyActivity(resolved.event, resolved.details);
+                }
+                catch { /* la notificación nunca debe bloquear la operación */ }
             }
+            // The RPC is the source of truth. Start a full sync without making
+            // the payment/movement UI wait for every table to load.
+            const sync = refresh().catch(() => {
+                setError('Guardado. La pantalla se actualizará en unos segundos; no repitas la operación.');
+                setLoading(false);
+            });
+            if (waitForRefresh) await sync;
             setNotice(typeof message === 'function' ? message() : message);
             return true;
         }
@@ -159,6 +184,7 @@ export function useRestaurant() {
         },
         saveOrder: async (customer: string, notes: string, items: Item[], order?: Order, takeaway = false) => {
             let savedId = order?.id || '';
+            let updatedOrder: Order | null = null;
             const ok = await run(async () => {
                 writer();
                 checkItems(items, order?.items);
@@ -179,10 +205,30 @@ export function useRestaurant() {
                 };
                 if (order) {
                     await rpc('edit_order', { ...args, p_id: order.id, p_version: order.version });
+                    const { data: refreshed, error } = await supabase!.from('orders').select('*').eq('id', order.id).single();
+                    if (error) throw error;
+                    updatedOrder = refreshed as Order;
                 } else {
                     savedId = String(await rpc('create_order', args));
                 }
-            }, order ? 'Pedido actualizado' : 'Pedido enviado a la cola', order ? 'order_updated' : 'order_created');
+            }, order ? 'Pedido actualizado' : 'Pedido enviado a la cola', () => ({
+                event: order ? 'order_updated' : 'order_created',
+                details: {
+                    actorName: profile?.name,
+                    orderId: savedId,
+                    orderNumber: order?.number,
+                    customer,
+                    takeaway: takeaway || items.some(item => (item.takeaway_quantity || 0) > 0),
+                    items: items.reduce((sum, item) => sum + item.quantity, 0),
+                    itemsSummary: items.map(item => `${item.quantity} × ${item.name}`).join(', '),
+                    amount: total(items),
+                },
+            }), false);
+            if (ok && order && !updatedOrder) {
+                const latest = data.orders.find(item => item.id === order.id);
+                if (latest) updatedOrder = latest;
+            }
+            if (ok && order && updatedOrder) return updatedOrder;
             return ok ? savedId : null;
         },
 
@@ -193,25 +239,36 @@ export function useRestaurant() {
             if (!Number.isSafeInteger(amount) || amount <= 0) throw new Error('El total debe ser un importe mayor a cero.');
             validatePayment(amount, method, received, receipt);
             await rpc('pay_order', { p_id: order.id, p_version: order.version, p_method: method, p_received: received, p_receipt: receipt, p_total: amount });
-        }, 'Pedido completado. Pago registrado en la caja.', 'order_paid'),
-        splitPay: (order: Order, label: string, items: Item[], method: Method, received: number, receipt: string | null) => run(async () => {
-            writer();
-            if (order.paid) throw new Error('Este pedido ya está completado.');
-            if (!items.length) throw new Error('Elige al menos un producto para esta persona.');
+        }, 'Pedido completado. Pago registrado en la caja.', () => ({
+            event: 'order_paid',
+            details: { actorName: profile?.name, orderId: order.id, orderNumber: order.number, customer: order.customer, amount, method },
+        })),
+        splitPay: (order: Order, label: string, items: Item[], method: Method, received: number, receipt: string | null) => {
             const amount = items.reduce((sum, item) => sum + item.price * item.quantity + (item.takeaway_fee || 0) * (item.takeaway_quantity || 0), 0);
-            validatePayment(amount, method, received, receipt);
-            await rpc('add_split_payment', {
-                p_id: order.id, p_version: order.version, p_label: label.trim(), p_items: items.map(i => ({ product_id: i.product_id, quantity: i.quantity })),
-                p_method: method, p_received: received, p_receipt: receipt,
-            });
-        }, 'Pago de la persona registrado', 'split_payment'),
+            return run(async () => {
+                writer();
+                if (order.paid) throw new Error('Este pedido ya está completado.');
+                if (!items.length) throw new Error('Elige al menos un producto para esta persona.');
+                validatePayment(amount, method, received, receipt);
+                await rpc('add_split_payment', {
+                    p_id: order.id, p_version: order.version, p_label: label.trim(), p_items: items.map(i => ({ product_id: i.product_id, quantity: i.quantity })),
+                    p_method: method, p_received: received, p_receipt: receipt,
+                });
+            }, 'Pago de la persona registrado', () => ({
+                event: 'split_payment',
+                details: { actorName: profile?.name, orderId: order.id, orderNumber: order.number, customer: order.customer, amount, method, label: label.trim() },
+            }));
+        },
         deleteOrder: (order: Order, reason: string) => run(async () => {
             writer();
             if (order.paid) throw new Error('Un pedido cobrado no se elimina. Corrígelo o registra el movimiento en caja.');
             if (data.order_payments.some(payment => payment.order_id === order.id)) throw new Error('El pedido tiene pagos divididos y no puede eliminarse.');
             if (reason.trim().length < 3) throw new Error('Escribe el motivo de la eliminación.');
             await rpc('delete_order', { p_id: order.id, p_version: order.version, p_reason: reason.trim() });
-        }, 'Pedido eliminado', 'order_deleted'),
+        }, 'Pedido eliminado', () => ({
+            event: 'order_deleted',
+            details: { actorName: profile?.name, orderId: order.id, orderNumber: order.number, customer: order.customer, reason: reason.trim() },
+        })),
         saveProduct: (product: Product) => run(async () => {
             if (!canMenu(role)) throw new Error('Solo administración puede editar el menú.');
             if (!product.name.trim() || !Number.isInteger(product.price) || product.price <= 0) throw new Error('Escribe un nombre y un precio mayor a cero.');
@@ -224,19 +281,22 @@ export function useRestaurant() {
                 p_image_path: product.image_path || null,
                 p_takeaway_fee: product.takeaway_fee || 0,
             });
-        }, 'Menú actualizado', 'product_saved'),
+        }, 'Menú actualizado', () => ({ event: 'product_saved', details: { actorName: profile?.name, name: product.name } })),
         deleteProduct: (product: Product) => run(async () => {
             if (!canMenu(role)) throw new Error('Solo administración puede eliminar productos.');
             if (!product.id) throw new Error('El producto ya no existe.');
             await rpc('delete_product', { p_id: product.id });
-        }, 'Producto eliminado del menú', 'product_saved'),
+        }, 'Producto eliminado del menú', () => ({ event: 'product_saved', details: { actorName: profile?.name, name: product.name, reason: 'eliminado' } })),
         cash: (business: Business, amount: number, method: Method, reason: string, kind: MovementKind = 'ingreso', receipt: string | null = null) => run(async () => {
             if (!canCash(role, business)) throw new Error('No puedes ajustar esta caja.');
             if (!Number.isSafeInteger(amount) || amount === 0 || reason.trim().length < 3) throw new Error('Indica un importe válido y el motivo.');
             if (kind === 'ingreso' && amount < 0) throw new Error('El ingreso debe ser positivo.');
             if ((kind === 'gasto' || kind === 'retiro') && amount > 0) throw new Error('El gasto o retiro debe ser negativo.');
             await rpc('cash_movement', { p_business: business, p_amount: amount, p_method: method, p_reason: reason, p_kind: kind, p_receipt: receipt });
-        }, 'Movimiento registrado', 'cash_movement'),
+        }, 'Movimiento registrado', () => ({
+            event: 'cash_movement',
+            details: { actorName: profile?.name, amount, method, kind, reason: reason.trim() },
+        })),
         productPhotoUrl: (path: string) => supabase!.storage.from('menu-images').getPublicUrl(path).data.publicUrl,
         async uploadProductPhoto(file: File): Promise<string> {
             if (!canMenu(role)) throw new Error('Solo administración puede subir fotos.');
@@ -252,7 +312,10 @@ export function useRestaurant() {
             const { data: result, error } = await supabase!.functions.invoke('manage-users', { body: values });
             if (error) throw error;
             if (result?.error) throw new Error(result.error);
-        }, 'Usuario guardado', 'user_saved'),
+        }, 'Usuario guardado', () => ({
+            event: 'user_saved',
+            details: { actorName: profile?.name, name: values.name, reason: values.id ? (values.active === false ? 'desactivado' : 'actualizado') : 'creado' },
+        })),
         getManagedUsers: async (): Promise<{ id: string; email: string }[]> => {
             if (role !== 'superadmin') throw new Error('Solo el superadmin puede ver las cuentas del equipo.');
             const { data: result, error } = await supabase!.functions.invoke('manage-users', { body: { action: 'list_users' } });
@@ -271,6 +334,10 @@ export function useRestaurant() {
             }, 'Contraseña temporal generada', 'password_reset');
             return success ? credential : null;
         },
+        setSetting: (key: string, value: string) => run(async () => {
+            if (role !== 'superadmin' && role !== 'administrador') throw new Error('Solo administración puede cambiar la configuración.');
+            await rpc('set_app_setting', { p_key: key, p_value: value });
+        }, 'Conteo reiniciado'),
         async upload(file: File): Promise<string> {
             if (!['image/jpeg', 'image/png', 'image/webp'].includes(file.type) || file.size > 5 * 1024 * 1024) throw new Error('Usa una imagen JPG, PNG o WebP de hasta 5 MB.');
             const path = `${profile!.id}/${id()}.${file.type.split('/')[1]}`;
