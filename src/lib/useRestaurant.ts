@@ -41,11 +41,11 @@ export function useRestaurant() {
             setLoading(false);
             return;
         }
-        async function loadRows(table: string, optional = false) {
+        async function loadRows(table: string, optional = false, orderColumn = 'id') {
             const rows: Record<string, unknown>[] = [];
             try {
                 for (let offset = 0;; offset += 1000) {
-                    const { data: batch, error } = await supabase!.from(table).select('*').order('id').range(offset, offset + 999);
+                    const { data: batch, error } = await supabase!.from(table).select('*').order(orderColumn).range(offset, offset + 999);
                     if (error)
                         throw error;
                     rows.push(...batch);
@@ -61,7 +61,7 @@ export function useRestaurant() {
         }
         const [results, optionalRows] = await Promise.all([
             Promise.all(['profiles', 'products', 'orders', 'shifts', 'movements', 'order_payments', 'audits'].map(table => loadRows(table))),
-            Promise.all([loadRows('app_settings', true), loadRows('notifications', true)]),
+            Promise.all([loadRows('app_settings', true, 'key'), loadRows('notifications', true)]),
         ]);
         if (version !== refreshVersion.current)
             return;
@@ -334,10 +334,19 @@ export function useRestaurant() {
             }, 'Contraseña temporal generada', 'password_reset');
             return success ? credential : null;
         },
-        setSetting: (key: string, value: string) => run(async () => {
+        setSetting: async (key: string, value: string) => {
             if (role !== 'superadmin' && role !== 'administrador') throw new Error('Solo administración puede cambiar la configuración.');
-            await rpc('set_app_setting', { p_key: key, p_value: value });
-        }, 'Conteo reiniciado'),
+            const saved = await run(async () => {
+                await rpc('set_app_setting', { p_key: key, p_value: value });
+            }, 'Conteo reiniciado');
+            if (saved) {
+                setData(current => ({
+                    ...current,
+                    settings: [...current.settings.filter(setting => setting.key !== key), { key, value, updated_at: new Date().toISOString() }],
+                }));
+            }
+            return saved;
+        },
         async upload(file: File): Promise<string> {
             if (!['image/jpeg', 'image/png', 'image/webp'].includes(file.type) || file.size > 5 * 1024 * 1024) throw new Error('Usa una imagen JPG, PNG o WebP de hasta 5 MB.');
             const path = `${profile!.id}/${id()}.${file.type.split('/')[1]}`;
