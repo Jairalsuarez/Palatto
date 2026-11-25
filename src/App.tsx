@@ -68,9 +68,8 @@ export default function App() {
   const [detail, setDetail] = useState<string | null>(null)
   const [payRequest, setPayRequest] = useState<string | Order | null>(null)
   const [history, setHistory] = useState<Route[]>([])
-  const [manualPrep, setManualPrep] = useState<{ order: Order; value: string; secondsLeft: number } | null>(null)
   const [alertOrder, setAlertOrder] = useState<Order | null>(null)
-  const [alertResumeSeconds, setAlertResumeSeconds] = useState<number | null>(null)
+  const [alertPaused, setAlertPaused] = useState(false)
   const [soundEnabled, setSoundEnabled] = useState(true)
   const audioRef = useRef<AudioContext | null>(null)
   const audioUnlocked = useRef(false)
@@ -95,13 +94,13 @@ export default function App() {
     if (order) {
       alertedOrders.current.add(order.id)
       setAlertOrder(order)
-      setAlertResumeSeconds(null)
+      setAlertPaused(false)
     }
     if (alertOrder && !incoming.some(order => order.id === alertOrder.id)) setAlertOrder(null)
   }, [app.data.orders, app.role, alertOrder])
 
   useEffect(() => {
-    if (!alertOrder || !soundEnabled || document.visibilityState !== 'visible') return
+    if (!alertOrder || alertPaused || !soundEnabled || document.visibilityState !== 'visible') return
     let context = audioRef.current
     if (!context) { context = new AudioContext(); audioRef.current = context }
     if (context.state === 'suspended') void context.resume()
@@ -131,7 +130,7 @@ export default function App() {
     const stopVibration = () => { if (typeof navigator.vibrate === 'function') navigator.vibrate(0) }
     document.addEventListener('visibilitychange', stopVibration)
     return () => { window.clearInterval(timer); document.removeEventListener('visibilitychange', stopVibration); stopVibration() }
-  }, [alertOrder, soundEnabled])
+  }, [alertOrder, alertPaused, soundEnabled])
 
   useEffect(() => {
     if (!canKitchen(app.role) || audioUnlocked.current) return
@@ -334,14 +333,7 @@ export default function App() {
       </div>)}
     </div>
 
-    {alertOrder && canKitchen(app.role) && <KitchenAlert key={alertOrder.id} app={app} order={alertOrder} initialSeconds={alertResumeSeconds} soundEnabled={soundEnabled} onSound={() => {
-      setSoundEnabled(current => !current)
-      if (audioRef.current?.state === 'suspended') void audioRef.current.resume()
-    }} onDismiss={() => setAlertOrder(null)} onManual={(minutes,secondsLeft) => {
-      setManualPrep({ order: alertOrder, value: String(minutes), secondsLeft })
-      setAlertOrder(null)
-    }}/>}
-    {manualPrep && <ManualPrepModal app={app} order={manualPrep.order} value={manualPrep.value} secondsLeft={manualPrep.secondsLeft} onChange={value => setManualPrep(current => current ? { ...current, value } : null)} onClose={() => { const pending=manualPrep; setManualPrep(null); if(pending.secondsLeft>0){setAlertResumeSeconds(pending.secondsLeft);setAlertOrder(pending.order)} }} onAccepted={() => setManualPrep(null)}/>}
+    {alertOrder && canKitchen(app.role) && <KitchenAlert key={alertOrder.id} app={app} order={alertOrder} soundEnabled={soundEnabled} onSound={() => { setSoundEnabled(current => !current); if (audioRef.current?.state === 'suspended') void audioRef.current.resume() }} onDismiss={() => { setAlertOrder(null); setAlertPaused(false) }} onCustomizing={setAlertPaused}/>}
   </div>
 }
 
@@ -414,38 +406,89 @@ function Home({ app, detail, setDetail, payRequest, payHandled, onNew, onDrinks,
   </>
 }
 
-function kitchenTimeLabel(seconds: number) {
-  const value = Math.max(0, seconds)
-  return `${Math.floor(value / 60)}:${String(value % 60).padStart(2, '0')}`
-}
-
-function KitchenAlert({ app, order, initialSeconds, soundEnabled, onSound, onDismiss, onManual }: { app: Restaurant; order: Order; initialSeconds: number | null; soundEnabled: boolean; onSound: () => void; onDismiss: () => void; onManual: (minutes: number, secondsLeft: number) => void }) {
-  const deadline=useRef(Date.now()+Math.max(0,initialSeconds??30)*1000)
-  const [now, setNow] = useState(Date.now())
-  const [recommendation,setRecommendation]=useState(recommendedPrepMinutes(order,app.data.orders,app.data.products))
-  useEffect(()=>{let live=true;void app.kitchenEstimate(order).then(minutes=>{if(live)setRecommendation(minutes)}).catch(()=>undefined);return()=>{live=false}},[order.id,order.version,app.kitchenEstimate])
-  useEffect(() => { const timer = window.setInterval(() => setNow(Date.now()),250); return () => window.clearInterval(timer) }, [])
-  const seconds=Math.max(0,Math.ceil((deadline.current-now)/1000))
-  useEffect(() => { if (seconds === 0) onDismiss() }, [seconds,onDismiss])
-  if (order.accepted_at || order.status !== 'en_proceso') return null
-  const left = seconds
-  const progress = Math.max(0,Math.min(100,(left/30)*100))
-  return <div className="kitchen-alert-backdrop" role="alertdialog" aria-modal="true" aria-label={`Nuevo pedido ${number(order.number)}`}>
-    <section className="kitchen-alert-ticket">
-      <header className="kitchen-alert-head"><div><span className="kitchen-alert-kicker">Comanda de cocina</span><h2>Pedido nuevo</h2><p>#{number(order.number)} <span>·</span> {order.customer}</p></div>
-        <div className="kitchen-alert-head-actions"><button className="btn btn-alert-sound" onClick={onSound} aria-label={soundEnabled ? 'Silenciar alarma' : 'Activar alarma'}>{soundEnabled ? <Volume2 size={18}/> : <VolumeX size={18}/>}{soundEnabled ? 'Silenciar' : 'Activar sonido'}</button><button type="button" className="kitchen-alert-close" onClick={onDismiss} aria-label="Cerrar solicitud"><X size={21}/></button></div>
-      </header>
-      <div className="kitchen-alert-body">
-        <section className="kitchen-alert-order"><h3>Preparar</h3><ul>{order.items.map(item => <li key={item.product_id}><b>{displayNumber(item.quantity)} ×</b><span>{item.name}</span></li>)}</ul>{order.notes && <p className="kitchen-alert-notes">Nota: {order.notes}</p>}</section>
-        <div className="kitchen-alert-estimate"><div><span>Tiempo recomendado</span><strong>{recommendation}<small>min</small></strong></div><div className={`kitchen-alert-timer ${left <= 8 ? 'is-urgent' : ''}`} style={{ '--alert-progress': `${progress}%` } as React.CSSProperties}><b>{left}</b><small>segundos<br/>para responder</small></div></div>
-        <div className="kitchen-alert-buttons"><button className="btn btn-primary btn-block kitchen-alert-accept" disabled={app.busy} onClick={async () => {if(await app.acceptKitchenOrder(order,recommendation))onDismiss()}}>Aceptar · {recommendation} min</button><button className="btn btn-alert-outline btn-block kitchen-alert-manual" onClick={() => onManual(recommendation,left)}>Indicar otro tiempo</button></div>
-      </div>
-    </section>
+function TimeWheel({ label, value, max, onChange }: { label: string; value: number; max: number; onChange: (value: number) => void }) {
+  const ref = useRef<HTMLDivElement>(null)
+  useEffect(() => { if (ref.current) ref.current.scrollTop = value * 48 }, [])
+  function readScroll() {
+    if (!ref.current) return
+    const next = Math.max(0, Math.min(max, Math.round(ref.current.scrollTop / 48)))
+    if (next !== value) onChange(next)
+  }
+  function move(delta: number) {
+    const next = Math.max(0, Math.min(max, value + delta))
+    onChange(next)
+    ref.current?.scrollTo({ top: next * 48, behavior: 'smooth' })
+  }
+  return <div className="time-wheel-field">
+    <span>{label}</span>
+    <div ref={ref} className="time-wheel" role="spinbutton" aria-label={label} aria-valuemin={0} aria-valuemax={max} aria-valuenow={value} tabIndex={0}
+      onScroll={readScroll} onKeyDown={event => { if(event.key==='ArrowUp'||event.key==='ArrowRight'){event.preventDefault();move(1)} if(event.key==='ArrowDown'||event.key==='ArrowLeft'){event.preventDefault();move(-1)} }}>
+      <div className="time-wheel-spacer"/>
+      {Array.from({ length: max + 1 }, (_, index) => <div className={`time-wheel-option ${value === index ? 'selected' : ''}`} key={index} aria-hidden="true">{String(index).padStart(2,'0')}</div>)}
+      <div className="time-wheel-spacer"/>
+    </div>
   </div>
 }
 
-function ManualPrepModal({ app, order, value, secondsLeft, onChange, onClose, onAccepted }: { app: Restaurant; order: Order; value: string; secondsLeft: number; onChange: (value: string) => void; onClose: () => void; onAccepted: () => void }) {
-  return <Modal title={`Tiempo · pedido #${number(order.number)}`} close={onClose} page><form className="form-stack" onSubmit={async event => { event.preventDefault(); const minutes=Number(value); if (!Number.isInteger(minutes)||minutes<1||minutes>240) return; if (await app.acceptKitchenOrder(order,minutes)) onAccepted() }}><p className="muted">El reloj del borde está pausado mientras eliges el tiempo.</p>{secondsLeft>0&&<p className="kitchen-deadline">Quedan {kitchenTimeLabel(secondsLeft)} de alerta pausada.</p>}<label>Tiempo estimado (minutos)<input autoFocus type="number" min="1" max="240" step="1" required value={value} onChange={event => onChange(event.target.value)}/></label>{app.error && <p className="alert alert-error" role="alert">{app.error}</p>}<button className="btn btn-primary btn-lg btn-block" disabled={app.busy||!Number.isInteger(Number(value))||Number(value)<1||Number(value)>240}>Confirmar y aceptar pedido</button></form></Modal>
+function KitchenAlert({ app, order, soundEnabled, onSound, onDismiss, onCustomizing }: { app: Restaurant; order: Order; soundEnabled: boolean; onSound: () => void; onDismiss: () => void; onCustomizing: (paused: boolean) => void }) {
+  const [customizing, setCustomizing] = useState(false)
+  const [recommendation, setRecommendation] = useState(recommendedPrepMinutes(order, app.data.orders, app.data.products))
+  const [chosenMinutes, setChosenMinutes] = useState(recommendedPrepMinutes(order, app.data.orders, app.data.products))
+  const recommendationReceived = useRef(false)
+  const deadline = useRef(Date.now() + 30000)
+  const [remainingSeconds, setRemainingSeconds] = useState(30)
+  useEffect(() => {
+    let live = true
+    void app.kitchenEstimate(order).then(minutes => {
+      if (!live) return
+      setRecommendation(minutes)
+      if (!recommendationReceived.current) setChosenMinutes(minutes)
+      recommendationReceived.current = true
+    }).catch(() => undefined)
+    return () => { live = false }
+  }, [order.id, order.version, app.kitchenEstimate])
+  useEffect(() => {
+    if (customizing) return
+    const timer = window.setInterval(() => setRemainingSeconds(Math.max(0, Math.ceil((deadline.current - Date.now()) / 1000))), 200)
+    return () => window.clearInterval(timer)
+  }, [customizing])
+  useEffect(() => { if (remainingSeconds === 0) onDismiss() }, [remainingSeconds, onDismiss])
+  if (order.accepted_at || order.status !== 'en_proceso') return null
+
+  const hours = Math.floor(chosenMinutes / 60)
+  const minutes = chosenMinutes % 60
+  const totalMinutes = hours * 60 + minutes
+  const progress = Math.max(0, Math.min(100, (remainingSeconds / 30) * 100))
+  function updateHours(value: number) { setChosenMinutes(Math.min(240, value * 60 + Math.min(minutes, value === 4 ? 0 : 59))) }
+  function updateMinutes(value: number) { setChosenMinutes(Math.min(240, hours * 60 + value)) }
+  function returnToRecommendation() {
+    deadline.current = Date.now() + remainingSeconds * 1000
+    setCustomizing(false)
+    onCustomizing(false)
+  }
+  async function accept(minutesToAccept: number) {
+    if (await app.acceptKitchenOrder(order, minutesToAccept)) onDismiss()
+  }
+
+  return <div className="kitchen-alert-backdrop" role="alertdialog" aria-modal="true" aria-label={`Nuevo pedido ${number(order.number)}`}>
+    <section className={`kitchen-alert-ticket ${customizing ? 'is-customizing' : ''}`}>
+      <header className="kitchen-alert-head"><div><span className="kitchen-alert-kicker">Comanda de cocina</span><h2>{customizing ? 'Tiempo de preparación' : 'Pedido nuevo'}</h2><p>#{number(order.number)} <span>·</span> {order.customer}</p></div>
+        <div className="kitchen-alert-head-actions">{!customizing && <button className="btn btn-alert-sound" onClick={onSound} aria-label={soundEnabled ? 'Silenciar alarma' : 'Activar alarma'}>{soundEnabled ? <Volume2 size={18}/> : <VolumeX size={18}/>}<span>{soundEnabled ? 'Silenciar' : 'Activar sonido'}</span></button>}<button type="button" className="kitchen-alert-close" onClick={onDismiss} aria-label="Cerrar solicitud"><X size={21}/></button></div>
+      </header>
+      {!customizing ? <div className="kitchen-alert-body">
+        <section className="kitchen-alert-order"><h3>Preparar</h3><ul>{order.items.map(item => <li key={item.product_id}><b>{displayNumber(item.quantity)} ×</b><span>{item.name}</span></li>)}</ul>{order.notes && <p className="kitchen-alert-notes">Nota: {order.notes}</p>}</section>
+        <div className="kitchen-alert-estimate"><div><span>Tiempo recomendado</span><strong>{recommendation}<small>min</small></strong></div><div className={`kitchen-alert-timer ${remainingSeconds <= 8 ? 'is-urgent' : ''}`} style={{ '--alert-progress': `${progress}%` } as React.CSSProperties}><b>{remainingSeconds}</b><small>segundos<br/>para responder</small></div></div>
+        {app.error && <p className="alert alert-error" role="alert">{app.error}</p>}
+        <div className="kitchen-alert-buttons"><button className="btn btn-primary btn-block kitchen-alert-accept" disabled={app.busy} onClick={() => void accept(recommendation)}>Aceptar · {recommendation} min</button><button className="btn btn-alert-outline btn-block kitchen-alert-manual" onClick={() => { setChosenMinutes(recommendation); setCustomizing(true); onCustomizing(true) }}>Personalizar tiempo</button></div>
+      </div> : <div className="kitchen-alert-body kitchen-time-editor">
+        <p>Desliza los números para ajustar el tiempo.</p>
+        <div className="time-wheel-group"><TimeWheel label="Horas" value={hours} max={4} onChange={updateHours}/><span className="time-wheel-unit">h</span><TimeWheel label="Minutos" value={minutes} max={hours === 4 ? 0 : 59} onChange={updateMinutes}/><span className="time-wheel-unit">min</span></div>
+        <div className="kitchen-alert-time-summary">Tiempo elegido <strong>{totalMinutes < 60 ? `${String(minutes).padStart(2,'0')} min` : `${String(hours).padStart(2,'0')} h ${String(minutes).padStart(2,'0')} min`}</strong></div>
+        {app.error && <p className="alert alert-error" role="alert">{app.error}</p>}
+        <div className="kitchen-alert-buttons"><button className="btn btn-primary btn-block kitchen-alert-accept" disabled={app.busy || totalMinutes < 1 || totalMinutes > 240} onClick={() => void accept(totalMinutes)}>{app.busy ? 'Enviando…' : 'Enviar tiempo'}<ArrowRight size={18}/></button><button className="btn btn-alert-outline btn-block kitchen-alert-manual" disabled={app.busy} onClick={returnToRecommendation}>Volver al pedido</button></div>
+      </div>}
+    </section>
+  </div>
 }
 
 function drinksTrackingSince(app: Restaurant): number {
