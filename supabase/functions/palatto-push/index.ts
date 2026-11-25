@@ -29,6 +29,7 @@ type Details = {
   name?: string
   paid?: boolean
   received?: boolean
+  hasKitchenFood?: boolean
   reconciliationId?: string
   cashBalance?: number
   transferBalance?: number
@@ -49,7 +50,7 @@ function buildNotice(event: string, details: Details) {
       return {
         title: 'Pedido nuevo',
         body: `${orderLabel(details)} · ${details.takeaway ? 'Para llevar' : 'Para servir'}${details.itemsSummary ? ` · ${details.itemsSummary}` : ''}${amount ? ` · ${amount}` : ''}`,
-        push: true,
+        push: details.hasKitchenFood !== false,
       }
     case 'order_updated':
       return { title: 'Pedido actualizado', body: `${orderLabel(details)} se actualizó.`, push: false }
@@ -160,7 +161,8 @@ Deno.serve(async request => {
         if (order) {
           details.orderNumber ??= Number(order.number)
           details.customer ??= String(order.customer || '')
-          const items = Array.isArray(order.items) ? order.items as { name?: string; quantity?: number; takeaway_quantity?: number }[] : []
+          const items = Array.isArray(order.items) ? order.items as { name?: string; quantity?: number; takeaway_quantity?: number; business?: string; is_drink?: boolean }[] : []
+          if (event === 'order_created') details.hasKitchenFood = items.some(item => item.is_drink !== true && item.business !== 'carreta')
           if (typeof details.takeaway !== 'boolean') {
             details.takeaway = Boolean(order.takeaway) || items.some(item => Number(item.takeaway_quantity || 0) > 0)
           }

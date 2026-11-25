@@ -88,7 +88,7 @@ export default function App() {
 
   useEffect(() => {
     if (!canKitchen(app.role)) { setAlertOrder(null); return }
-    const incoming = app.data.orders.filter(order => !order.paid && order.status === 'en_proceso' && !order.accepted_at)
+    const incoming = app.data.orders.filter(order => !order.paid && order.status === 'en_proceso' && !order.accepted_at && order.items.some(item => !itemIsDrink(item)))
       .sort((a, b) => a.created_at.localeCompare(b.created_at))
     const order = incoming.find(item => !alertedOrders.current.has(item.id) && Date.now()-new Date(item.created_at).getTime()<30000)
     for (const item of incoming) if (Date.now()-new Date(item.created_at).getTime()>=30000) alertedOrders.current.add(item.id)
@@ -105,28 +105,32 @@ export default function App() {
     let context = audioRef.current
     if (!context) { context = new AudioContext(); audioRef.current = context }
     if (context.state === 'suspended') void context.resume()
-    const start = context.currentTime
-    const oscillator = context.createOscillator()
-    const gain = context.createGain()
-    oscillator.type = 'square'
-    oscillator.frequency.setValueAtTime(880, start)
-    oscillator.frequency.setValueAtTime(660, start + .18)
-    gain.gain.setValueAtTime(.0001, start)
-      gain.gain.exponentialRampToValueAtTime(.32, start + .03)
-      gain.gain.setValueAtTime(.32, start + .42)
-    gain.gain.exponentialRampToValueAtTime(.0001, start + .48)
-    oscillator.connect(gain); gain.connect(context.destination)
-    oscillator.start(start); oscillator.stop(start + .5)
+    const playKitchenAlarm = (start: number) => {
+      const notes = [1046, 784, 1046, 784, 1174]
+      notes.forEach((frequency, index) => {
+        const at = start + index * .16
+        const oscillator = context!.createOscillator()
+        const gain = context!.createGain()
+        oscillator.type = 'square'
+        oscillator.frequency.setValueAtTime(frequency, at)
+        gain.gain.setValueAtTime(.0001, at)
+        gain.gain.exponentialRampToValueAtTime(.24, at + .012)
+        gain.gain.setValueAtTime(.24, at + .105)
+        gain.gain.exponentialRampToValueAtTime(.0001, at + .145)
+        oscillator.connect(gain); gain.connect(context!.destination)
+        oscillator.start(at); oscillator.stop(at + .15)
+      })
+    }
+    playKitchenAlarm(context.currentTime)
+    if (typeof navigator.vibrate === 'function') navigator.vibrate([180, 80, 180, 80, 340])
     const timer = window.setInterval(() => {
       if (context?.state !== 'running' || document.visibilityState !== 'visible') return
-      const now = context.currentTime
-      const tone = context.createOscillator(); const volume = context.createGain()
-      tone.type = 'square'; tone.frequency.setValueAtTime(880, now); tone.frequency.setValueAtTime(660, now + .18)
-      volume.gain.setValueAtTime(.0001, now); volume.gain.exponentialRampToValueAtTime(.18, now + .03)
-      volume.gain.setValueAtTime(.32, now + .42); volume.gain.exponentialRampToValueAtTime(.0001, now + .48)
-      tone.connect(volume); volume.connect(context!.destination); tone.start(now); tone.stop(now + .5)
-    }, 1400)
-    return () => window.clearInterval(timer)
+      playKitchenAlarm(context.currentTime)
+      if (typeof navigator.vibrate === 'function') navigator.vibrate([180, 80, 180, 80, 340])
+    }, 1500)
+    const stopVibration = () => { if (typeof navigator.vibrate === 'function') navigator.vibrate(0) }
+    document.addEventListener('visibilitychange', stopVibration)
+    return () => { window.clearInterval(timer); document.removeEventListener('visibilitychange', stopVibration); stopVibration() }
   }, [alertOrder, soundEnabled])
 
   useEffect(() => {
@@ -425,13 +429,18 @@ function KitchenAlert({ app, order, initialSeconds, soundEnabled, onSound, onDis
   useEffect(() => { if (seconds === 0) onDismiss() }, [seconds,onDismiss])
   if (order.accepted_at || order.status !== 'en_proceso') return null
   const left = seconds
-  const circumference = 2*Math.PI*112
+  const progress = Math.max(0,Math.min(100,(left/30)*100))
   return <div className="kitchen-alert-backdrop" role="alertdialog" aria-modal="true" aria-label={`Nuevo pedido ${number(order.number)}`}>
-    <div className="kitchen-alert-tools"><button className="btn btn-alert-sound" onClick={onSound}>{soundEnabled ? <Volume2 size={18}/> : <VolumeX size={18}/>} {soundEnabled ? 'Silenciar' : 'Activar sonido'}</button></div>
-    <div className="kitchen-alert-circle" style={{ '--alert-progress': circumference*(1-left/30) } as React.CSSProperties}>
-      <div className="kitchen-alert-content"><p className="eyebrow">Nuevo pedido · #{number(order.number)}</p><h2>{order.customer}</h2><ul>{order.items.map(item => <li key={item.product_id}>{displayNumber(item.quantity)} × {item.name}</li>)}</ul>{order.notes && <p>{order.notes}</p>}<small className="kitchen-alert-recommend">Sugerencia de cocina</small><strong className="kitchen-alert-minutes">{recommendation} min</strong><div className="kitchen-alert-buttons"><button className="btn btn-primary btn-block" disabled={app.busy} onClick={async () => {if(await app.acceptKitchenOrder(order,recommendation))onDismiss()}}>Aceptar recomendación</button><button className="btn btn-alert-outline btn-block" onClick={() => onManual(recommendation,left)}>Elegir otro tiempo</button></div><button className="link-button kitchen-alert-dismiss" onClick={onDismiss}>Dejar para la cola de cocina</button></div>
-      <span className="kitchen-alert-timer">{left}<small>seg</small></span>
-    </div>
+    <section className="kitchen-alert-ticket">
+      <header className="kitchen-alert-head"><div><span className="kitchen-alert-kicker">Comanda de cocina</span><h2>Pedido nuevo</h2><p>#{number(order.number)} <span>·</span> {order.customer}</p></div>
+        <div className="kitchen-alert-head-actions"><button className="btn btn-alert-sound" onClick={onSound} aria-label={soundEnabled ? 'Silenciar alarma' : 'Activar alarma'}>{soundEnabled ? <Volume2 size={18}/> : <VolumeX size={18}/>}{soundEnabled ? 'Silenciar' : 'Activar sonido'}</button><button type="button" className="kitchen-alert-close" onClick={onDismiss} aria-label="Cerrar solicitud"><X size={21}/></button></div>
+      </header>
+      <div className="kitchen-alert-body">
+        <section className="kitchen-alert-order"><h3>Preparar</h3><ul>{order.items.map(item => <li key={item.product_id}><b>{displayNumber(item.quantity)} ×</b><span>{item.name}</span></li>)}</ul>{order.notes && <p className="kitchen-alert-notes">Nota: {order.notes}</p>}</section>
+        <div className="kitchen-alert-estimate"><div><span>Tiempo recomendado</span><strong>{recommendation}<small>min</small></strong></div><div className={`kitchen-alert-timer ${left <= 8 ? 'is-urgent' : ''}`} style={{ '--alert-progress': `${progress}%` } as React.CSSProperties}><b>{left}</b><small>segundos<br/>para responder</small></div></div>
+        <div className="kitchen-alert-buttons"><button className="btn btn-primary btn-block kitchen-alert-accept" disabled={app.busy} onClick={async () => {if(await app.acceptKitchenOrder(order,recommendation))onDismiss()}}>Aceptar · {recommendation} min</button><button className="btn btn-alert-outline btn-block kitchen-alert-manual" onClick={() => onManual(recommendation,left)}>Indicar otro tiempo</button></div>
+      </div>
+    </section>
   </div>
 }
 
