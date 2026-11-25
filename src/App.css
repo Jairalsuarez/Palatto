@@ -52,14 +52,19 @@
 .app-bar-right { display: flex; align-items: center; gap: 8px; }
 
 .app-update-banner {
+  position: fixed;
+  z-index: 29;
+  top: calc(var(--app-update-top, 76px) + env(safe-area-inset-top, 0px));
+  left: 50%;
   display: flex;
   align-items: center;
   justify-content: space-between;
   gap: 12px;
   width: min(calc(100% - 28px), 908px);
   min-height: 58px;
-  margin: 10px auto 0;
+  margin: 0;
   padding: 10px 14px;
+  transform: translateX(-50%);
   border: 1px solid color-mix(in oklab, var(--copper) 35%, var(--line));
   border-radius: 15px;
   color: var(--ink);
@@ -67,13 +72,14 @@
   text-align: left;
   box-shadow: 0 5px 16px rgb(52 38 21 / 7%);
   animation: update-banner-in .24s ease-out both;
+  animation-fill-mode: backwards;
 }
 .app-update-banner > span { display: grid; gap: 2px; flex: 1; }
 .app-update-banner strong { font-size: .84rem; line-height: 1.25; }
 .app-update-banner small { color: var(--muted); font-size: .74rem; }
-.app-update-banner:active { transform: scale(.99); }
+.app-update-banner:active { transform: translateX(-50%) scale(.99); }
 .app-update-banner:focus-visible { outline: 3px solid color-mix(in oklab, var(--copper) 55%, transparent); outline-offset: 2px; }
-@keyframes update-banner-in { from { opacity: 0; transform: translateY(-5px); } to { opacity: 1; transform: translateY(0); } }
+@keyframes update-banner-in { from { opacity: 0; translate: 0 -5px; } to { opacity: 1; translate: 0 0; } }
 
 .privacy-toggle {
   display: grid;
