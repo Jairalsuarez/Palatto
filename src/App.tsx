@@ -25,6 +25,42 @@ const dateTime = (d: string) => displayNumericText(new Date(d).toLocaleString('e
 const today = () => displayNumericText(new Date().toLocaleDateString('es-EC', { weekday: 'long', day: 'numeric', month: 'long' }))
 const drinksTrackingStart = '2026-11-13' // Inicio del seguimiento acumulado de aguas y colas.
 const notificationsSeenKey = 'palatto:notifications-seen'
+const kitchenSoundKey = 'palatto:kitchen-request-sound'
+const defaultKitchenSound = '/sounds/kitchen-request.mp3'
+
+function saveKitchenSound(sound: string | null): Promise<void> {
+  return new Promise((resolve, reject) => {
+    const request = indexedDB.open('palatto-settings', 1)
+    request.onupgradeneeded = () => request.result.createObjectStore('preferences')
+    request.onerror = () => reject(request.error)
+    request.onsuccess = () => {
+      const database = request.result
+      const transaction = database.transaction('preferences', 'readwrite')
+      if (sound) transaction.objectStore('preferences').put(sound, kitchenSoundKey)
+      else transaction.objectStore('preferences').delete(kitchenSoundKey)
+      transaction.oncomplete = () => { database.close(); resolve() }
+      transaction.onerror = () => { database.close(); reject(transaction.error) }
+      transaction.onabort = () => { database.close(); reject(transaction.error) }
+    }
+  })
+}
+
+function loadKitchenSound(): Promise<string | null> {
+  return new Promise((resolve, reject) => {
+    const request = indexedDB.open('palatto-settings', 1)
+    request.onupgradeneeded = () => request.result.createObjectStore('preferences')
+    request.onerror = () => reject(request.error)
+    request.onsuccess = () => {
+      const database = request.result
+      const transaction = database.transaction('preferences', 'readonly')
+      const value = transaction.objectStore('preferences').get(kitchenSoundKey)
+      value.onsuccess = () => resolve(typeof value.result === 'string' ? value.result : null)
+      value.onerror = () => reject(value.error)
+      transaction.oncomplete = () => database.close()
+      transaction.onerror = () => { database.close(); reject(transaction.error) }
+    }
+  })
+}
 
 function Empty({ title, children, action }: { title: string; children: ReactNode; action?: ReactNode }) {
   return <div className="empty">
@@ -76,6 +112,7 @@ export default function App() {
   const [soundEnabled, setSoundEnabled] = useState(true)
   const audioRef = useRef<AudioContext | null>(null)
   const kitchenBellRef = useRef<HTMLAudioElement | null>(null)
+  const kitchenSoundUrlRef = useRef<string>(defaultKitchenSound)
   const audioUnlocked = useRef(false)
   const alertedOrders = useRef(new Set<string>())
   const [hideValues, setHideValues] = useState(() => {
@@ -93,6 +130,12 @@ export default function App() {
     : undefined
 
   useEffect(() => { setSensitiveValuesHidden(hideValues) }, [hideValues])
+
+  useEffect(() => {
+    void loadKitchenSound().then(sound => {
+      if (sound) kitchenSoundUrlRef.current = sound
+    }).catch(() => undefined)
+  }, [])
 
   useEffect(() => {
     let checking = false
@@ -244,7 +287,7 @@ export default function App() {
     if (!context) { context = new AudioContext(); audioRef.current = context }
     if (context.state === 'suspended') void context.resume()
     const playKitchenAlarm = () => {
-      const bell = kitchenBellRef.current || new Audio('/sounds/kitchen-request.mp3')
+      const bell = kitchenBellRef.current || new Audio(kitchenSoundUrlRef.current)
       kitchenBellRef.current = bell
       bell.volume = 1
       bell.currentTime = 0
@@ -268,7 +311,7 @@ export default function App() {
       if (!audioRef.current) audioRef.current = new AudioContext()
       if (audioRef.current.state === 'suspended') void audioRef.current.resume()
       if (!kitchenBellRef.current) {
-        const bell = new Audio('/sounds/kitchen-request.mp3')
+        const bell = new Audio(kitchenSoundUrlRef.current)
         bell.preload = 'auto'
         bell.muted = true
         kitchenBellRef.current = bell
@@ -461,6 +504,12 @@ export default function App() {
         const prompt = installPrompt as Event & { prompt: () => Promise<void>; userChoice: Promise<{ outcome: string }> }
         await prompt.prompt()
         if ((await prompt.userChoice).outcome === 'accepted') setInstallPrompt(null)
+      }} kitchenSoundUrl={kitchenSoundUrlRef.current} onKitchenSoundChange={url => {
+        kitchenSoundUrlRef.current = url
+        if (kitchenBellRef.current) {
+          kitchenBellRef.current.pause()
+          kitchenBellRef.current = null
+        }
       }}/>}
     </main>
 
@@ -1830,8 +1879,12 @@ function Notifications({ app, back, onOrder }: { app: Restaurant; back: () => vo
   </div>
 }
 
-function AccountPage({ app, installPrompt, installed, navigate, onInstall }: { app: Restaurant; installPrompt: Event | null; installed: boolean; navigate: (page: Page) => void; onInstall: () => void }) {
+function AccountPage({ app, installPrompt, installed, navigate, onInstall, kitchenSoundUrl, onKitchenSoundChange }: { app: Restaurant; installPrompt: Event | null; installed: boolean; navigate: (page: Page) => void; onInstall: () => void; kitchenSoundUrl: string; onKitchenSoundChange: (url: string) => void }) {
   const [passwordOpen, setPasswordOpen] = useState(false)
+  const [kitchenSoundName, setKitchenSoundName] = useState(() => kitchenSoundUrl === defaultKitchenSound ? 'Sonido predeterminado' : 'Sonido personalizado')
+  const [kitchenSoundMessage, setKitchenSoundMessage] = useState('')
+  const [soundPreviewing, setSoundPreviewing] = useState(false)
+  const kitchenSoundPreviewRef = useRef<HTMLAudioElement | null>(null)
   const [pushBusy, setPushBusy] = useState(false)
   const [pushMessage, setPushMessage] = useState('')
   const [pushEnabled, setPushEnabled] = useState(false)
@@ -1861,6 +1914,42 @@ function AccountPage({ app, installPrompt, installed, navigate, onInstall }: { a
     } catch (error) { setPushMessage(error instanceof Error ? error.message : 'No se pudieron actualizar las notificaciones.') }
     finally { setPushBusy(false) }
   }
+  async function updateKitchenSound(file?: File) {
+    setKitchenSoundMessage('')
+    if (!file) return
+    if (!file.type.startsWith('audio/')) { setKitchenSoundMessage('Elige un archivo de audio.'); return }
+    if (file.size > 2 * 1024 * 1024) { setKitchenSoundMessage('El audio debe pesar menos de 2 MB.'); return }
+    const reader = new FileReader()
+    reader.onload = () => {
+      if (typeof reader.result !== 'string') { setKitchenSoundMessage('No se pudo leer el audio.'); return }
+      const soundData = reader.result
+      void saveKitchenSound(soundData).then(() => {
+        onKitchenSoundChange(soundData)
+        setKitchenSoundName(file.name)
+        setKitchenSoundMessage('Sonido guardado en este dispositivo.')
+      }).catch(() => {
+        setKitchenSoundMessage('No hay espacio para guardar este sonido en el dispositivo.')
+      })
+    }
+    reader.onerror = () => setKitchenSoundMessage('No se pudo leer el audio.')
+    reader.readAsDataURL(file)
+  }
+  function resetKitchenSound() {
+    void saveKitchenSound(null).catch(() => undefined)
+    onKitchenSoundChange(defaultKitchenSound)
+    setKitchenSoundName('Sonido predeterminado')
+    setKitchenSoundMessage('Se restauró el sonido predeterminado.')
+  }
+  async function previewKitchenSound() {
+    kitchenSoundPreviewRef.current?.pause()
+    const preview = new Audio(kitchenSoundUrl)
+    kitchenSoundPreviewRef.current = preview
+    preview.onended = () => setSoundPreviewing(false)
+    preview.onerror = () => { setSoundPreviewing(false); setKitchenSoundMessage('No se pudo reproducir este audio.') }
+    setSoundPreviewing(true)
+    try { await preview.play() } catch { setSoundPreviewing(false); setKitchenSoundMessage('Toca de nuevo para permitir la reproducción de audio.') }
+  }
+  useEffect(() => () => { kitchenSoundPreviewRef.current?.pause() }, [])
   return <div className="settings-page">
     <div className="page-head"><div><p className="eyebrow">Preferencias personales</p><h1>Tu cuenta</h1></div></div>
     <section className="account-profile-card">
@@ -1868,6 +1957,13 @@ function AccountPage({ app, installPrompt, installed, navigate, onInstall }: { a
       <div><strong>{app.profile!.name}</strong><small>{labels[app.role]}</small></div>
       <span className="account-status"><Check size={15}/>Activa</span>
     </section>
+    {app.role === 'cocinero' && <section className="settings-card kitchen-sound-settings">
+      <div className="settings-card-title"><Volume2 size={20}/><div><h2>Sonido de solicitudes</h2><p>Alarma para cuando te pregunten el tiempo de preparación.</p></div></div>
+      <div className="kitchen-sound-current"><span><strong>{kitchenSoundName}</strong><small>Se guarda solo en este dispositivo.</small></span><button type="button" className="btn btn-ghost" onClick={() => void previewKitchenSound()}>{soundPreviewing ? 'Reproduciendo…' : 'Probar'}</button></div>
+      <label className="kitchen-sound-upload">Subir un sonido<input type="file" accept="audio/*,.mp3,.wav,.ogg,.m4a" onChange={event => { void updateKitchenSound(event.currentTarget.files?.[0]); event.currentTarget.value = '' }}/><span>MP3, WAV, OGG o M4A · hasta 2 MB</span></label>
+      {kitchenSoundUrl !== defaultKitchenSound && <button className="account-link kitchen-sound-reset" type="button" onClick={resetKitchenSound}><span>Usar sonido predeterminado</span><ArrowRight size={18}/></button>}
+      {kitchenSoundMessage && <p className="tiny" role="status">{kitchenSoundMessage}</p>}
+    </section>}
     <section className="settings-card">
       <div className="settings-card-title"><ShieldCheck size={20}/><div><h2>Seguridad</h2><p>Actualiza tu clave cuando quieras.</p></div></div>
       <button className="account-link" onClick={() => setPasswordOpen(value => !value)}><span>{passwordOpen ? 'Cerrar cambio de contraseña' : 'Cambiar contraseña'}</span><ArrowRight size={18}/></button>

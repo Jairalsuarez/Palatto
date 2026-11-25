@@ -1858,6 +1858,14 @@ dialog.native-dialog.dialog-large {
 .account-profile-card strong { font-family: var(--font-display); font-size: 1.12rem; letter-spacing: -.02em; }
 .account-profile-card small { color: var(--muted); font-weight: 600; }
 .account-status, .install-state { display: inline-flex; align-items: center; gap: 5px; color: var(--green); font-size: .76rem; font-weight: 800; }
+.kitchen-sound-current { display:flex; align-items:center; justify-content:space-between; gap:12px; padding:12px; border:1px solid var(--line); border-radius:13px; background:var(--surface-2); }
+.kitchen-sound-current > span { display:grid; min-width:0; gap:3px; }
+.kitchen-sound-current strong { overflow:hidden; color:var(--ink); font-size:.86rem; text-overflow:ellipsis; white-space:nowrap; }
+.kitchen-sound-current small { color:var(--muted); font-size:.72rem; }
+.kitchen-sound-upload { display:grid; gap:5px; padding:13px; border:1px dashed color-mix(in oklab,var(--copper) 55%,var(--line)); border-radius:13px; color:var(--ink); font-size:.86rem; font-weight:750; cursor:pointer; }
+.kitchen-sound-upload input { width:100%; color:var(--muted); font-size:.78rem; }
+.kitchen-sound-upload span { color:var(--muted); font-size:.7rem; font-weight:500; }
+.kitchen-sound-reset { margin-top:-5px; }
 .settings-card { display: grid; gap: 12px; padding: 16px; border: 1px solid var(--line); border-radius: 18px; background: var(--surface); }
 .settings-card-title { display: flex; align-items: flex-start; gap: 10px; }
 .settings-card-title > svg { flex: 0 0 auto; margin-top: 2px; color: var(--copper-dark); }
