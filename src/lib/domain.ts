@@ -28,7 +28,7 @@ export const canWrite = (role: Role) => role !== 'visualizador' && role !== 'coc
 export const canTakeOrders = (role: Role) => role === 'superadmin' || role === 'administrador' || role === 'mesera' || role === 'mesero'
 export const canKitchen = (role: Role) => role === 'cocinero'
 export const canMenu = (role: Role) => ['superadmin', 'administrador'].includes(role)
-export const canCash = (role: Role, _b: Business) => role === 'superadmin' || role === 'administrador'
+export const canCash = (role: Role, _b: Business) => role === 'superadmin' || role === 'administrador' || role === 'cocinero'
 export const canEdit = (role: Role, order: Order) => canWrite(role) && !order.paid
 export function validatePayment(amount: number, method: Method, received: number, receipt: string | null) {
   if (method === 'efectivo' && amount > 0 && (!Number.isSafeInteger(received) || received < amount)) throw new Error('El efectivo recibido no cubre el importe.')

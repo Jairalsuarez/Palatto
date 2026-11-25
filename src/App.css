@@ -1122,6 +1122,17 @@ dialog.native-dialog.dialog-large {
 .kitchen-alert-response-pending { display:grid; width:82px; height:82px; flex:0 0 auto; align-content:center; justify-items:center; gap:3px; border:2px solid #e7b967; border-radius:50%; color:#845016; background:#fff4df; }
 .kitchen-alert-response-pending b { font-size:.85rem; }
 .kitchen-alert-response-pending small { color:#756a5d; font-size:.68rem; }
+.kitchen-quick-time-section { display:grid; gap:7px; min-width:0; }
+.kitchen-quick-time-section > p { margin:0; color:#756a5d; font-size:.8rem; font-weight:750; }
+.kitchen-quick-times { display:flex; gap:8px; overflow-x:auto; padding:2px 2px 8px; overscroll-behavior-x:contain; scroll-snap-type:x proximity; scrollbar-width:thin; scrollbar-color:#cbb99e transparent; touch-action:pan-x; }
+.kitchen-quick-time { display:grid; flex:0 0 62px; min-height:60px; align-content:center; justify-items:center; gap:0; padding:5px 7px; border:1px solid #d8cbb9; border-radius:13px; color:#42382c; background:#fffdfa; font-variant-numeric:tabular-nums; scroll-snap-align:start; transition:transform .16s ease,background .16s ease,border-color .16s ease; }
+.kitchen-quick-time:active { transform:scale(.96); }
+.kitchen-quick-time strong { font-size:1.05rem; line-height:1; }
+.kitchen-quick-time > span { color:#766b5e; font-size:.66rem; font-weight:700; }
+.kitchen-quick-time small { color:#fff5e8; font-size:.54rem; font-weight:750; }
+.kitchen-quick-time.is-recommended { flex-basis:86px; border-color:#312a22; color:#fffaf0; background:#312a22; }
+.kitchen-quick-time.is-recommended > span { color:#ead9c4; }
+.kitchen-quick-time-hint { color:#84796a; font-size:.68rem; }
 .kitchen-alert-buttons { display:grid; gap:9px; }
 .kitchen-alert-buttons .btn { min-height:50px; border-radius:13px; font-size:.96rem; font-weight:750; }
 .kitchen-alert-accept { color:#fffaf0; background:#27231e; }

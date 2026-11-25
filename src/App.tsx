@@ -365,7 +365,7 @@ export default function App() {
       {page === 'reportes' && <Reports app={app}/>}
       {page === 'insumos' && <Inventory app={app}/>}
       {page === 'nuevo' && canTakeOrders(app.role) && <OrderEditor key={editing?.id || 'new'} app={app} order={editing} back={back} done={finishOrder} pay={paySaved} waitForKitchen={waitForKitchen}/>}
-      {page === 'cajas' && cashBusiness && !canKitchen(app.role)
+      {page === 'cajas' && cashBusiness
         ? <Cash app={app} back={back} onOrder={openOrder}/>
         : null}
       {page === 'menu' && <Menu app={app}/>}
@@ -524,6 +524,8 @@ function KitchenAlert({ app, order, soundEnabled, onSound, onDismiss, onCustomiz
   const hours = Math.floor(chosenMinutes / 60)
   const minutes = chosenMinutes % 60
   const totalMinutes = hours * 60 + minutes
+  const quickTimes = Array.from({ length: Math.max(1, Math.floor((240 - recommendation) / 5) + 1) }, (_, index) => recommendation + index * 5)
+  if (quickTimes.at(-1)! < 240) quickTimes.push(240)
   function updateHours(value: number) { setChosenMinutes(Math.min(240, value * 60 + Math.min(minutes, value === 4 ? 0 : 59))) }
   function updateMinutes(value: number) { setChosenMinutes(Math.min(240, hours * 60 + value)) }
   function returnToRecommendation() {
@@ -546,7 +548,16 @@ function KitchenAlert({ app, order, soundEnabled, onSound, onDismiss, onCustomiz
         <section className="kitchen-alert-order"><h3>Preparar</h3><ul>{order.items.map(item => <li key={item.product_id}><b>{displayNumber(item.quantity)} ×</b><span>{item.name}</span></li>)}</ul>{order.notes && <p className="kitchen-alert-notes">Nota: {order.notes}</p>}</section>
         <div className="kitchen-alert-estimate"><div><span>Tiempo recomendado</span><strong>{recommendation}<small>min</small></strong></div><div className="kitchen-alert-response-pending"><b>Respuesta</b><small>pendiente</small></div></div>
         {app.error && <p className="alert alert-error" role="alert">{app.error}</p>}
-        <div className="kitchen-alert-buttons"><button className="btn btn-primary btn-block kitchen-alert-accept" disabled={app.busy} onClick={() => void accept(recommendation)}>Aceptar · {recommendation} min</button><button className="btn btn-alert-outline btn-block kitchen-alert-manual" onClick={() => { setChosenMinutes(recommendation); setCustomizing(true); onCustomizing(true) }}>Personalizar tiempo</button><button className="btn btn-alert-reject btn-block" disabled={app.busy} onClick={() => void reject()}>{app.busy ? 'Procesando…' : 'Rechazar solicitud'}</button></div>
+        <section className="kitchen-quick-time-section" aria-label="Aceptar con tiempo estimado">
+          <p>Toca un tiempo para aceptar el pedido</p>
+          <div className="kitchen-quick-times" role="group" aria-label="Aceptar pedido en intervalos de cinco minutos">
+            {quickTimes.map((minutes, index) => <button type="button" key={minutes} className={`kitchen-quick-time ${index === 0 ? 'is-recommended' : ''}`} disabled={app.busy} aria-label={`Aceptar pedido en ${minutes} minutos${index === 0 ? ', recomendado' : ''}`} onClick={() => void accept(minutes)}>
+              <strong>{minutes}</strong><span>min</span>{index === 0 && <small>recomendado</small>}
+            </button>)}
+          </div>
+          <small className="kitchen-quick-time-hint">Desliza para ver más tiempos, de 5 en 5</small>
+        </section>
+        <div className="kitchen-alert-buttons"><button className="btn btn-alert-outline btn-block kitchen-alert-manual" disabled={app.busy} onClick={() => { setChosenMinutes(recommendation); setCustomizing(true); onCustomizing(true) }}>Personalizar tiempo</button><button className="btn btn-alert-reject btn-block" disabled={app.busy} onClick={() => void reject()}>{app.busy ? 'Procesando…' : 'Rechazar pedido'}</button></div>
       </div> : <div className="kitchen-alert-body kitchen-time-editor">
         <p>Desliza los números para ajustar el tiempo.</p>
         <div className="time-wheel-group"><TimeWheel label="Horas" value={hours} max={4} onChange={updateHours}/><span className="time-wheel-unit">h</span><TimeWheel label="Minutos" value={minutes} max={hours === 4 ? 0 : 59} onChange={updateMinutes}/><span className="time-wheel-unit">min</span></div>
@@ -1281,7 +1292,7 @@ function Cash({ app, back, business = 'palatto', onOrder }: { app: Restaurant; b
             setConfirmReconcile(true)
           }}><WalletCards size={20}/>Cuadrar caja</button>}
         </div>
-      : <p className="alert alert-info"><ShieldCheck size={17}/>Solo Administrador y Superadmin ajustan la caja. Los cobros entran automáticamente.</p>}
+      : <p className="alert alert-info"><ShieldCheck size={17}/>Solo administración puede ajustar la caja. Los cobros entran automáticamente.</p>}
 
     <DailyReport app={app} business={business}/>
 

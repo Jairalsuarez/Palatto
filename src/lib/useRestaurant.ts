@@ -324,7 +324,6 @@ export function useRestaurant() {
             await rpc('delete_product', { p_id: product.id });
         }, 'Producto eliminado del menú', () => ({ event: 'product_saved', details: { actorName: profile?.name, name: product.name, reason: 'eliminado' } })),
         cash: (business: Business, amount: number, method: Method, reason: string, kind: MovementKind = 'ingreso', receipt: string | null = null) => run(async () => {
-            if (role === 'cocinero') throw new Error('El rol de cocina no puede gestionar caja.');
             if (!canCash(role, business)) throw new Error('No puedes ajustar esta caja.');
             if (!Number.isSafeInteger(amount) || amount === 0 || reason.trim().length < 3) throw new Error('Indica un importe válido y el motivo.');
             if (kind === 'ingreso' && amount < 0) throw new Error('El ingreso debe ser positivo.');

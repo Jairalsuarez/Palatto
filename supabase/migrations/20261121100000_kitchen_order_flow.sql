@@ -165,7 +165,7 @@ create or replace function public.toggle_shift(p_business public.business) retur
 language plpgsql security definer set search_path = '' as $$
 declare s public.shifts; r public.app_role := public.current_app_role();
 begin
-  if r='cocinero' or r is null or not(r='superadmin' or (p_business='palatto' and r='administrador')) then raise exception 'No tienes permiso para este turno.'; end if;
+  if r is null or not(r in ('superadmin','cocinero') or (p_business='palatto' and r='administrador')) then raise exception 'No tienes permiso para este turno.'; end if;
   perform pg_advisory_xact_lock(81001);
   select * into s from public.shifts where business=p_business and closed_at is null for update;
   if found then

@@ -12,7 +12,7 @@ create table public.cash_reconciliations (
 create index cash_reconciliations_reconciled_at_idx on public.cash_reconciliations(reconciled_at desc);
 alter table public.cash_reconciliations enable row level security;
 create policy read_cash_reconciliations on public.cash_reconciliations
-  for select to authenticated using (public.current_app_role() in ('superadmin','administrador'));
+  for select to authenticated using (public.current_app_role() in ('superadmin','administrador','cocinero'));
 revoke all on public.cash_reconciliations from anon, authenticated;
 grant select on public.cash_reconciliations to authenticated;
 
@@ -20,7 +20,7 @@ create function public.reconcile_cash(p_id uuid,p_counted_cash integer,p_counted
 language plpgsql security definer set search_path = '' as $$
 declare v_cash integer; v_transfer integer;
 begin
-  if coalesce(public.current_app_role() not in ('superadmin','administrador'),true) then
+  if coalesce(public.current_app_role() not in ('superadmin','administrador','cocinero'),true) then
     raise exception 'Solo administración puede cuadrar la caja.';
   end if;
   if p_id is null or p_counted_cash is null or p_counted_cash < 0 or p_counted_transfer is null or p_counted_transfer < 0 then
