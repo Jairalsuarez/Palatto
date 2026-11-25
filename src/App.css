@@ -1064,6 +1064,15 @@ dialog.native-dialog.dialog-large {
 .time-wheel-option { display:grid; height:48px; place-items:center; scroll-snap-align:center; color:#8a7e6e; font-size:1.15rem; font-variant-numeric:tabular-nums; transition:color 140ms ease, transform 140ms ease, font-weight 140ms ease; }
 .time-wheel-option.selected { color:#342e26; font-size:1.42rem; font-weight:850; transform:scale(1.05); }
 .time-wheel-unit { align-self:center; margin-top:23px; color:#594f42; font-weight:750; }
+.queue-time-prompt { display:grid; gap:12px; }
+.queue-time-recommended { display:grid; justify-items:center; gap:8px; padding:16px 12px; border-radius:14px; background:#f3eadb; }
+.queue-time-recommended span { color:#716657; font-size:.84rem; font-weight:700; }
+.queue-time-recommended strong { color:#8f4108; font-size:2rem; font-variant-numeric:tabular-nums; }
+.queue-time-customize { min-height:46px; }
+.queue-time-wheel-view { justify-items:center; }
+.queue-time-wheel-view > p { margin:0; color:#716657; text-align:center; font-size:.88rem; }
+.queue-time-wheel-view .time-wheel-group { margin:4px 0; }
+.queue-time-picked { color:#8f4108; font-size:1.15rem; font-variant-numeric:tabular-nums; }
 .kitchen-alert-time-summary { display:flex; align-items:center; justify-content:space-between; gap:12px; padding:12px 14px; border-radius:11px; color:#716657; background:#f3eadb; font-size:.85rem; }
 .kitchen-alert-time-summary strong { color:#8f4108; font-size:1rem; font-variant-numeric:tabular-nums; }
 .kitchen-alert-order h3 { margin:0 0 8px; color:#766b5e; font-size:.72rem; letter-spacing:.09em; text-transform:uppercase; }

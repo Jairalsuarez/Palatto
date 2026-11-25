@@ -438,6 +438,12 @@ function KitchenAlert({ app, order, soundEnabled, onSound, onDismiss, onCustomiz
   const deadline = useRef(Date.now() + 30000)
   const [remainingSeconds, setRemainingSeconds] = useState(30)
   useEffect(() => {
+    if (order.prep_minutes) {
+      setRecommendation(order.prep_minutes)
+      if (!recommendationReceived.current) setChosenMinutes(order.prep_minutes)
+      recommendationReceived.current = true
+      return
+    }
     let live = true
     void app.kitchenEstimate(order).then(minutes => {
       if (!live) return
@@ -446,7 +452,7 @@ function KitchenAlert({ app, order, soundEnabled, onSound, onDismiss, onCustomiz
       recommendationReceived.current = true
     }).catch(() => undefined)
     return () => { live = false }
-  }, [order.id, order.version, app.kitchenEstimate])
+  }, [order.id, order.version, order.prep_minutes, app.kitchenEstimate])
   useEffect(() => {
     if (customizing) return
     const timer = window.setInterval(() => setRemainingSeconds(Math.max(0, Math.ceil((deadline.current - Date.now()) / 1000))), 200)
@@ -915,12 +921,18 @@ function OrderEditor({ app, order, back, done, pay }: { app: Restaurant; order?:
   const [showNotes, setShowNotes] = useState(Boolean(order?.notes))
   const [items, setItems] = useState<Item[]>(order?.items || [])
   const [notes, setNotes] = useState(order?.notes || '')
+  const [queuePrompt, setQueuePrompt] = useState(false)
+  const [customizeQueueTime, setCustomizeQueueTime] = useState(false)
+  const [queueMinutes, setQueueMinutes] = useState(10)
+  const [queueCharge, setQueueCharge] = useState(false)
 
   const allTakeaway = items.length > 0 && items.every(item => (item.takeaway_quantity || 0) >= item.quantity)
   const itemsTotal = total(items)
   const takeawayFee = items.reduce((sum, item) => sum + (item.takeaway_fee || 0) * (item.takeaway_quantity || 0), 0)
   const quantityTotal = items.reduce((sum, item) => sum + item.quantity, 0)
   const nextNumber = order?.number ?? Math.max(0, ...app.data.orders.filter(item => dayKey(item.created_at) === dayKey(new Date())).map(item => item.number)) + 1
+  const hasKitchenItems = items.some(item => !itemIsDrink(item))
+  const queueRecommendation = recommendedPrepMinutes({ id: order?.id || 'new', number: nextNumber, customer: 'Pedido', notes, items, status: 'en_proceso', paid: false, method: null, receipt: null, created_at: new Date().toISOString(), version: 1 }, app.data.orders, app.data.products)
 
   function add(product: Product) {
     setPicker(false)
@@ -960,12 +972,23 @@ function OrderEditor({ app, order, back, done, pay }: { app: Restaurant; order?:
   function setAllTakeaway(value: boolean) {
     setItems(current => current.map(item => ({ ...item, takeaway_quantity: value ? item.quantity : 0 })))
   }
-  async function submit(charge: boolean) {
+  async function save(charge: boolean, prepMinutes?: number) {
     if (!items.length) { app.setError('Añade al menos un producto.'); return }
-    const saved = await app.saveOrder(order?.customer || 'Pedido', notes, items, order, allTakeaway)
+    const saved = await app.saveOrder(order?.customer || 'Pedido', notes, items, order, allTakeaway, prepMinutes)
     if (!saved) return
     if (charge) pay(saved)
     else done()
+  }
+  async function submit(charge: boolean) {
+    if (!items.length) { app.setError('Añade al menos un producto.'); return }
+    if (!order && hasKitchenItems) {
+      setQueueMinutes(queueRecommendation)
+      setQueueCharge(charge)
+      setCustomizeQueueTime(false)
+      setQueuePrompt(true)
+      return
+    }
+    await save(charge)
   }
 
   return <div className="editor">
@@ -1040,7 +1063,7 @@ function OrderEditor({ app, order, back, done, pay }: { app: Restaurant; order?:
             {app.busy ? 'Guardando…' : 'Cobrar ahora'}<Banknote size={18}/>
           </button>}
           <button type="submit" className="btn btn-primary btn-lg" disabled={app.busy || !items.length}>
-            {app.busy ? 'Guardando…' : order ? 'Guardar cambio' : 'Enviar a cocina'}<ArrowRight size={19}/>
+            {app.busy ? 'Guardando…' : order ? 'Guardar cambio' : hasKitchenItems ? 'Poner en cola' : 'Enviar pedido'}<ArrowRight size={19}/>
           </button>
         </div>
       </div>
@@ -1048,6 +1071,22 @@ function OrderEditor({ app, order, back, done, pay }: { app: Restaurant; order?:
 
     {picker && <Modal title="Agregar productos" close={() => setPicker(false)} large>
       <ProductPicker app={app} selected={items} add={add}/>
+    </Modal>}
+
+    {queuePrompt && <Modal title={customizeQueueTime ? 'Personalizar tiempo' : 'Tiempo de preparación'} close={() => setQueuePrompt(false)}>
+      {!customizeQueueTime ? <div className="queue-time-prompt">
+        <div className="queue-time-recommended"><span>Tiempo recomendado</span><strong>{queueMinutes < 60 ? `${String(queueMinutes).padStart(2,'0')} min` : `${String(Math.floor(queueMinutes / 60)).padStart(2,'0')} h ${String(queueMinutes % 60).padStart(2,'0')} min`}</strong></div>
+        {app.error && <p className="alert alert-error" role="alert">{app.error}</p>}
+        <button type="button" className="btn btn-ghost btn-block queue-time-customize" onClick={() => setCustomizeQueueTime(true)}>Personalizar tiempo</button>
+        <button type="button" className="btn btn-primary btn-lg btn-block" disabled={app.busy} onClick={() => void save(queueCharge, queueMinutes)}>{app.busy ? 'Enviando…' : 'Enviar a cocina'}<ArrowRight size={18}/></button>
+      </div> : <div className="queue-time-prompt queue-time-wheel-view">
+        <p>Desliza los números para elegir cuánto tardará.</p>
+        <div className="time-wheel-group"><TimeWheel label="Horas" value={Math.floor(queueMinutes / 60)} max={4} onChange={value => setQueueMinutes(Math.min(240, value * 60 + Math.min(queueMinutes % 60, value === 4 ? 0 : 59)))}/><span className="time-wheel-unit">h</span><TimeWheel label="Minutos" value={queueMinutes % 60} max={Math.floor(queueMinutes / 60) === 4 ? 0 : 59} onChange={value => setQueueMinutes(Math.min(240, Math.floor(queueMinutes / 60) * 60 + value))}/><span className="time-wheel-unit">min</span></div>
+        <strong className="queue-time-picked">{queueMinutes < 60 ? `${String(queueMinutes).padStart(2,'0')} min` : `${String(Math.floor(queueMinutes / 60)).padStart(2,'0')} h ${String(queueMinutes % 60).padStart(2,'0')} min`}</strong>
+        {app.error && <p className="alert alert-error" role="alert">{app.error}</p>}
+        <button type="button" className="btn btn-primary btn-lg btn-block" disabled={app.busy || queueMinutes < 1} onClick={() => void save(queueCharge, queueMinutes)}>{app.busy ? 'Enviando…' : 'Enviar a cocina'}<ArrowRight size={18}/></button>
+        <button type="button" className="btn btn-ghost btn-block" onClick={() => setCustomizeQueueTime(false)}>Volver</button>
+      </div>}
     </Modal>}
   </div>
 }
