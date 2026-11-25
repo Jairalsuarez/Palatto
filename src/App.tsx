@@ -191,7 +191,7 @@ export default function App() {
     if (!context) { context = new AudioContext(); audioRef.current = context }
     if (context.state === 'suspended') void context.resume()
     const playKitchenAlarm = () => {
-      const bell = kitchenBellRef.current || new Audio('/sounds/service-bell.ogg')
+      const bell = kitchenBellRef.current || new Audio('/sounds/kitchen-request.mp3')
       kitchenBellRef.current = bell
       bell.volume = 1
       bell.currentTime = 0
@@ -215,7 +215,7 @@ export default function App() {
       if (!audioRef.current) audioRef.current = new AudioContext()
       if (audioRef.current.state === 'suspended') void audioRef.current.resume()
       if (!kitchenBellRef.current) {
-        const bell = new Audio('/sounds/service-bell.ogg')
+        const bell = new Audio('/sounds/kitchen-request.mp3')
         bell.preload = 'auto'
         bell.muted = true
         kitchenBellRef.current = bell
