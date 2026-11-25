@@ -42,7 +42,7 @@ export function OrderList({ orders, canPay, payments, open, pay }: { orders: Ord
       const separator = completed && (index === 0 || dateKey(orders[index - 1]) !== dateKey(order))
       const items = order.items.reduce((count, item) => count + item.quantity, 0)
       const summary = order.items.map(item => `${displayNumber(item.quantity)} × ${item.name}`).join(' · ')
-      const payable = !order.paid && canPay
+      const payable = !order.paid && canPay && !order.prep_requested && !order.prep_rejected
       const split = payments.filter(payment => payment.order_id === order.id)
       const splitPaid = split.reduce((sum, payment) => sum + payment.amount, 0)
       const orderValue = orderTotal(order)
@@ -62,13 +62,19 @@ export function OrderList({ orders, canPay, payments, open, pay }: { orders: Ord
             {orderService(order)} · {time(order.created_at)} · {displayNumber(items)} artículo{items === 1 ? '' : 's'}{!order.paid && order.status === 'completado' ? ' · Listo para entregar' : ''}
           </span>
           {!order.paid && order.ready_at && <span className="order-prep-line"><span>Listo {time(order.ready_at)}{order.prep_minutes ? ` · estimado ${order.prep_minutes} min` : ''}</span><PrepClock order={order}/></span>}
+          {order.prep_requested && <span className="order-request-status">Esperando respuesta de cocina · acciones bloqueadas</span>}
+          {order.prep_rejected && <span className="order-request-rejected">Cocina rechazó el pedido. No se cobrará ni preparará.</span>}
           <span className="order-items">{summary}</span>
           {order.notes && <span className="order-note-line">{order.notes}</span>}
           {!!split.length && <span className="order-split-line"><Users size={14} aria-hidden="true"/>{displayNumber(split.length)} {split.length === 1 ? 'pago' : 'pagos'} · falta {money(remaining)}</span>}
         </button>
         <div className="order-foot">
           <span className="order-total">{money(orderValue)}</span>
-          {payable
+          {order.prep_requested
+            ? <span className="order-waiting-action">Esperando cocina</span>
+            : order.prep_rejected
+            ? <span className="order-waiting-action">Rechazado por cocina</span>
+            : payable
             ? <button type="button" className="btn btn-money btn-sm" onClick={() => pay(order)}>
                 <Banknote size={17} aria-hidden="true"/>{split.length ? 'Cobrar resto' : 'Cobrar'}
               </button>

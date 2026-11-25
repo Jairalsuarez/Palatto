@@ -67,6 +67,7 @@ export default function App() {
   const [cashBusiness, setCashBusiness] = useState<Business | null>(null)
   const [detail, setDetail] = useState<string | null>(null)
   const [payRequest, setPayRequest] = useState<string | Order | null>(null)
+  const [deferredKitchenPay, setDeferredKitchenPay] = useState<string | null>(null)
   const [history, setHistory] = useState<Route[]>([])
   const [alertOrder, setAlertOrder] = useState<Order | null>(null)
   const [alertPaused, setAlertPaused] = useState(false)
@@ -82,15 +83,43 @@ export default function App() {
   const [notificationsSeen, setNotificationsSeen] = useState(() => localStorage.getItem(notificationsSeenKey) || '')
   const unreadNotifications = app.data.notifications.filter(item => !notificationsSeen || item.created_at > notificationsSeen).length
   const historyInitialized = useRef(false)
+  const previousCookRequests = useRef(new Set<string>())
+  const waitForCookRef = useRef<HTMLDivElement>(null)
+  const waitingCookOrder = !canKitchen(app.role) && app.profile
+    ? app.data.orders.find(order => order.prep_requested && order.created_by === app.profile!.id)
+    : undefined
 
   useEffect(() => { setSensitiveValuesHidden(hideValues) }, [hideValues])
+
+  useEffect(() => {
+    const current = new Set(app.data.orders.filter(order => order.prep_requested).map(order => order.id))
+    if (deferredKitchenPay) {
+      const deferredOrder = app.data.orders.find(order => order.id === deferredKitchenPay)
+      if (deferredOrder && !deferredOrder.prep_requested) {
+        if (deferredOrder.accepted_at) setPayRequest(deferredOrder.id)
+        setDeferredKitchenPay(null)
+      }
+    }
+    for (const id of previousCookRequests.current) {
+      if (current.has(id)) continue
+      const order = app.data.orders.find(candidate => candidate.id === id)
+      if (!order || order.created_by !== app.profile?.id) continue
+      if (order.accepted_at) {
+        app.setNotice(`Cocina aceptó el pedido #${order.number}. Listo en aproximadamente ${order.prep_minutes || 0} min.`)
+      } else if (order.prep_rejected) {
+        app.setNotice(`Cocina rechazó el pedido #${order.number}. Si aún lo necesitas, elimina este pedido y crea otro con tiempo asignado.`)
+      }
+    }
+    previousCookRequests.current = current
+  }, [app.data.orders, app.profile?.id, app.setNotice, deferredKitchenPay])
+
+  useEffect(() => { if (waitingCookOrder) waitForCookRef.current?.focus() }, [waitingCookOrder?.id])
 
   useEffect(() => {
     if (!canKitchen(app.role)) { setAlertOrder(null); return }
     const incoming = app.data.orders.filter(order => !order.paid && order.status === 'en_proceso' && !order.accepted_at && order.prep_requested && order.items.some(item => !itemIsDrink(item)))
       .sort((a, b) => a.created_at.localeCompare(b.created_at))
-    const order = incoming.find(item => !alertedOrders.current.has(item.id) && Date.now()-new Date(item.created_at).getTime()<30000)
-    for (const item of incoming) if (Date.now()-new Date(item.created_at).getTime()>=30000) alertedOrders.current.add(item.id)
+    const order = incoming.find(item => !alertedOrders.current.has(item.id))
     if (order) {
       alertedOrders.current.add(order.id)
       setAlertOrder(order)
@@ -278,6 +307,10 @@ export default function App() {
     setPayRequest(order)
     app.setError('')
   }
+  function waitForKitchen(orderId: string, chargeAfterResponse: boolean) {
+    if (chargeAfterResponse) setDeferredKitchenPay(orderId)
+    finishOrder()
+  }
   function openOrder(id: string) {
     setDetail(id)
     go('pedidos')
@@ -328,7 +361,7 @@ export default function App() {
       {page === 'notificaciones' && <Notifications app={app} back={back} onOrder={openOrder}/>}
       {page === 'reportes' && <Reports app={app}/>}
       {page === 'insumos' && <Inventory app={app}/>}
-      {page === 'nuevo' && canTakeOrders(app.role) && <OrderEditor key={editing?.id || 'new'} app={app} order={editing} back={back} done={finishOrder} pay={paySaved}/>}
+      {page === 'nuevo' && canTakeOrders(app.role) && <OrderEditor key={editing?.id || 'new'} app={app} order={editing} back={back} done={finishOrder} pay={paySaved} waitForKitchen={waitForKitchen}/>}
       {page === 'cajas' && cashBusiness && !canKitchen(app.role)
         ? <Cash app={app} back={back} onOrder={openOrder}/>
         : null}
@@ -362,6 +395,9 @@ export default function App() {
       </div>)}
     </div>
 
+    {waitingCookOrder && <div ref={waitForCookRef} tabIndex={-1} className="cook-wait-backdrop" role="alertdialog" aria-modal="true" aria-live="assertive" aria-label={`Esperando respuesta de cocina para el pedido ${number(waitingCookOrder.number)}`} onKeyDown={event => { if (event.key === 'Tab' || event.key === 'Escape') event.preventDefault() }}>
+      <section className="cook-wait-card"><span className="cook-wait-spinner" aria-hidden="true"><Flame size={26}/></span><p className="eyebrow">Solicitud enviada</p><h2>Esperando a cocina</h2><p>El cocinero está revisando el pedido <strong>#{number(waitingCookOrder.number)}</strong>.</p><p className="cook-wait-note">Cuando acepte o rechace la solicitud podrás continuar.</p></section>
+    </div>}
     {alertOrder && canKitchen(app.role) && <KitchenAlert key={alertOrder.id} app={app} order={alertOrder} soundEnabled={soundEnabled} onSound={() => { setSoundEnabled(current => !current); if (audioRef.current?.state === 'suspended') void audioRef.current.resume() }} onDismiss={() => { setAlertOrder(null); setAlertPaused(false) }} onCustomizing={setAlertPaused}/>}
   </div>
 }
@@ -464,8 +500,6 @@ function KitchenAlert({ app, order, soundEnabled, onSound, onDismiss, onCustomiz
   const [recommendation, setRecommendation] = useState(recommendedPrepMinutes(order, app.data.orders, app.data.products))
   const [chosenMinutes, setChosenMinutes] = useState(recommendedPrepMinutes(order, app.data.orders, app.data.products))
   const recommendationReceived = useRef(false)
-  const deadline = useRef(Date.now() + 30000)
-  const [remainingSeconds, setRemainingSeconds] = useState(30)
   useEffect(() => {
     if (order.prep_minutes) {
       setRecommendation(order.prep_minutes)
@@ -482,39 +516,34 @@ function KitchenAlert({ app, order, soundEnabled, onSound, onDismiss, onCustomiz
     }).catch(() => undefined)
     return () => { live = false }
   }, [order.id, order.version, order.prep_minutes, app.kitchenEstimate])
-  useEffect(() => {
-    if (customizing) return
-    const timer = window.setInterval(() => setRemainingSeconds(Math.max(0, Math.ceil((deadline.current - Date.now()) / 1000))), 200)
-    return () => window.clearInterval(timer)
-  }, [customizing])
-  useEffect(() => { if (remainingSeconds === 0) onDismiss() }, [remainingSeconds, onDismiss])
   if (order.accepted_at || order.status !== 'en_proceso') return null
 
   const hours = Math.floor(chosenMinutes / 60)
   const minutes = chosenMinutes % 60
   const totalMinutes = hours * 60 + minutes
-  const progress = Math.max(0, Math.min(100, (remainingSeconds / 30) * 100))
   function updateHours(value: number) { setChosenMinutes(Math.min(240, value * 60 + Math.min(minutes, value === 4 ? 0 : 59))) }
   function updateMinutes(value: number) { setChosenMinutes(Math.min(240, hours * 60 + value)) }
   function returnToRecommendation() {
-    deadline.current = Date.now() + remainingSeconds * 1000
     setCustomizing(false)
     onCustomizing(false)
   }
   async function accept(minutesToAccept: number) {
     if (await app.acceptKitchenOrder(order, minutesToAccept)) onDismiss()
   }
+  async function reject() {
+    if (await app.rejectKitchenOrder(order)) onDismiss()
+  }
 
   return <div className="kitchen-alert-backdrop" role="alertdialog" aria-modal="true" aria-label={`Nuevo pedido ${number(order.number)}`}>
     <section className={`kitchen-alert-ticket ${customizing ? 'is-customizing' : ''}`}>
       <header className="kitchen-alert-head"><div><span className="kitchen-alert-kicker">Comanda de cocina</span><h2>{customizing ? 'Tiempo de preparación' : 'Pedido nuevo'}</h2><p>#{number(order.number)} <span>·</span> {order.customer}</p></div>
-        <div className="kitchen-alert-head-actions">{!customizing && <button className="btn btn-alert-sound" onClick={onSound} aria-label={soundEnabled ? 'Silenciar alarma' : 'Activar alarma'}>{soundEnabled ? <Volume2 size={18}/> : <VolumeX size={18}/>}<span>{soundEnabled ? 'Silenciar' : 'Activar sonido'}</span></button>}<button type="button" className="kitchen-alert-close" onClick={onDismiss} aria-label="Cerrar solicitud"><X size={21}/></button></div>
+        <div className="kitchen-alert-head-actions">{!customizing && <button className="btn btn-alert-sound" onClick={onSound} aria-label={soundEnabled ? 'Silenciar alarma' : 'Activar alarma'}>{soundEnabled ? <Volume2 size={18}/> : <VolumeX size={18}/>}<span>{soundEnabled ? 'Silenciar' : 'Activar sonido'}</span></button>}</div>
       </header>
       {!customizing ? <div className="kitchen-alert-body">
         <section className="kitchen-alert-order"><h3>Preparar</h3><ul>{order.items.map(item => <li key={item.product_id}><b>{displayNumber(item.quantity)} ×</b><span>{item.name}</span></li>)}</ul>{order.notes && <p className="kitchen-alert-notes">Nota: {order.notes}</p>}</section>
-        <div className="kitchen-alert-estimate"><div><span>Tiempo recomendado</span><strong>{recommendation}<small>min</small></strong></div><div className={`kitchen-alert-timer ${remainingSeconds <= 8 ? 'is-urgent' : ''}`} style={{ '--alert-progress': `${progress}%` } as React.CSSProperties}><b>{remainingSeconds}</b><small>segundos<br/>para responder</small></div></div>
+        <div className="kitchen-alert-estimate"><div><span>Tiempo recomendado</span><strong>{recommendation}<small>min</small></strong></div><div className="kitchen-alert-response-pending"><b>Respuesta</b><small>pendiente</small></div></div>
         {app.error && <p className="alert alert-error" role="alert">{app.error}</p>}
-        <div className="kitchen-alert-buttons"><button className="btn btn-primary btn-block kitchen-alert-accept" disabled={app.busy} onClick={() => void accept(recommendation)}>Aceptar · {recommendation} min</button><button className="btn btn-alert-outline btn-block kitchen-alert-manual" onClick={() => { setChosenMinutes(recommendation); setCustomizing(true); onCustomizing(true) }}>Personalizar tiempo</button></div>
+        <div className="kitchen-alert-buttons"><button className="btn btn-primary btn-block kitchen-alert-accept" disabled={app.busy} onClick={() => void accept(recommendation)}>Aceptar · {recommendation} min</button><button className="btn btn-alert-outline btn-block kitchen-alert-manual" onClick={() => { setChosenMinutes(recommendation); setCustomizing(true); onCustomizing(true) }}>Personalizar tiempo</button><button className="btn btn-alert-reject btn-block" disabled={app.busy} onClick={() => void reject()}>{app.busy ? 'Procesando…' : 'Rechazar solicitud'}</button></div>
       </div> : <div className="kitchen-alert-body kitchen-time-editor">
         <p>Desliza los números para ajustar el tiempo.</p>
         <div className="time-wheel-group"><TimeWheel label="Horas" value={hours} max={4} onChange={updateHours}/><span className="time-wheel-unit">h</span><TimeWheel label="Minutos" value={minutes} max={hours === 4 ? 0 : 59} onChange={updateMinutes}/><span className="time-wheel-unit">min</span></div>
@@ -678,6 +707,8 @@ function OrderDetail({ app, order, close, pay, split, edit, showReceipt }: { app
           </ul>
 
           {order.notes && <p className="detail-note">{order.notes}</p>}
+          {order.prep_requested && <p className="alert order-waiting-detail">Esperando respuesta de cocina. El pedido no se puede editar, cobrar ni eliminar mientras la solicitud siga pendiente.</p>}
+          {order.prep_rejected && <p className="alert alert-error">Cocina rechazó el pedido. No se preparará ni cobrará; elimínalo y crea otro con un tiempo asignado si aún lo necesitas.</p>}
 
           <div className="detail-total"><span>{payments.length ? 'Total del pedido' : 'Total'}</span><strong>{money(owed)}</strong></div>
 
@@ -706,14 +737,14 @@ function OrderDetail({ app, order, close, pay, split, edit, showReceipt }: { app
           {order.receipt && <button className="btn btn-ghost btn-block btn-sm" onClick={() => showReceipt(order.receipt!)}><CreditCard size={16}/>Ver comprobante</button>}
 
           <div className="detail-actions">
-            {!order.paid && canWrite(app.role) && (payments.length
+            {!order.paid && !order.prep_requested && !order.prep_rejected && canWrite(app.role) && (payments.length
               ? <button className="btn btn-money btn-lg btn-block" disabled={app.busy} onClick={split}><Users size={19}/>Cobrar el resto · {money(remaining)}</button>
               : <>
                   <button className="btn btn-money btn-lg btn-block" disabled={app.busy} onClick={pay}><Banknote size={19}/>Cobrar {money(owed)}</button>
                   <button className="btn btn-ghost btn-block" onClick={split}><Users size={17}/>Dividir cuenta</button>
                 </>)}
-            {!payments.length && canEdit(app.role, order) && <button className="btn btn-ghost btn-block" onClick={edit}><Pencil size={17}/>Editar pedido</button>}
-            {!order.paid && !payments.length && canWrite(app.role) && <button className="btn btn-danger-ghost btn-block" onClick={() => setConfirming(true)}><Trash2 size={17}/>Eliminar pedido</button>}
+            {!order.prep_requested && !order.prep_rejected && !payments.length && canEdit(app.role, order) && <button className="btn btn-ghost btn-block" onClick={edit}><Pencil size={17}/>Editar pedido</button>}
+            {!order.prep_requested && !order.paid && !payments.length && canWrite(app.role) && <button className="btn btn-danger-ghost btn-block" onClick={() => setConfirming(true)}><Trash2 size={17}/>Eliminar pedido</button>}
           </div>
 
           <details className="history">
@@ -945,7 +976,7 @@ function ReceiptUpload({ app, value, onChange, title = 'Subir comprobante', hint
 
 /* ------------------------------------------------------------ Nuevo pedido */
 
-function OrderEditor({ app, order, back, done, pay }: { app: Restaurant; order?: Order; back: () => void; done: () => void; pay: (order: string | Order) => void }) {
+function OrderEditor({ app, order, back, done, pay, waitForKitchen }: { app: Restaurant; order?: Order; back: () => void; done: () => void; pay: (order: string | Order) => void; waitForKitchen: (orderId: string, chargeAfterResponse: boolean) => void }) {
   const [picker, setPicker] = useState(false)
   const [showNotes, setShowNotes] = useState(Boolean(order?.notes))
   const [items, setItems] = useState<Item[]>(order?.items || [])
@@ -1005,6 +1036,7 @@ function OrderEditor({ app, order, back, done, pay }: { app: Restaurant; order?:
     if (!items.length) { app.setError('Añade al menos un producto.'); return }
     const saved = await app.saveOrder(order?.customer || 'Pedido', notes, items, order, allTakeaway, prepMinutes, askKitchen)
     if (!saved) return
+    if (askKitchen) { waitForKitchen(String(saved), charge); return }
     if (charge) pay(saved)
     else done()
   }

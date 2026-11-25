@@ -196,7 +196,11 @@ export function useRestaurant() {
         acceptKitchenOrder: (order: Order, minutes: number) => run(async () => {
             if (role !== 'cocinero') throw new Error('Solo cocina puede aceptar pedidos.');
             await rpc('kitchen_accept_order', { p_id: order.id, p_version: order.version, p_prep_minutes: minutes });
-        }, 'Pedido aceptado. El temporizador está en marcha.'),
+        }, 'Pedido aceptado. El temporizador está en marcha.', undefined, true),
+        rejectKitchenOrder: (order: Order) => run(async () => {
+            if (role !== 'cocinero') throw new Error('Solo cocina puede rechazar solicitudes.');
+            await rpc('kitchen_reject_order', { p_id: order.id, p_version: order.version });
+        }, 'Pedido rechazado por cocina. Elimina este pedido y crea otro con tiempo asignado si aún lo necesitas.', undefined, true),
         advanceKitchenOrder: (order: Order) => run(async () => {
             if (role !== 'cocinero') throw new Error('Solo cocina puede finalizar pedidos.');
             await rpc('kitchen_advance_order', { p_id: order.id, p_version: order.version });
@@ -248,7 +252,7 @@ export function useRestaurant() {
                     itemsSummary: items.map(item => `${item.quantity} × ${item.name}`).join(', '),
                     amount: total(items),
                 },
-            }), false);
+            }), askKitchen);
             if (ok && order && !updatedOrder) {
                 const latest = data.orders.find(item => item.id === order.id);
                 if (latest) updatedOrder = latest;

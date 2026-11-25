@@ -765,6 +765,11 @@ input::placeholder, textarea::placeholder { color: color-mix(in oklab, var(--mut
 .order-chevron { margin-left: auto; color: var(--muted); }
 .order-meta { color: var(--muted); font-size: .76rem; font-weight: 600; }
 .order-prep-line { display:flex; align-items:center; justify-content:space-between; gap:12px; margin-top:5px; color:var(--muted); font-size:.76rem; font-weight:650; }
+.order-request-status, .order-request-rejected { display:block; margin-top:6px; padding:7px 9px; border-radius:9px; font-size:.75rem; font-weight:750; line-height:1.35; }
+.order-request-status { color:#77460d; background:#fff3dc; }
+.order-request-rejected { color:#8d3028; background:#fff0ed; }
+.order-waiting-action { color:#77460d; font-size:.74rem; font-weight:800; }
+.order-waiting-detail { margin:12px 0; }
 .prep-clock-group { display:inline-flex; flex:0 0 auto; align-items:center; gap:8px; color:#795023; font-variant-numeric:tabular-nums; }
 .prep-clock { position:relative; display:inline-flex; flex:0 0 auto; width:42px; height:42px; align-items:center; justify-content:center; }
 .prep-clock-ring { position:absolute; inset:0; width:100%; height:100%; transform:rotate(-90deg); overflow:visible; }
@@ -1056,6 +1061,16 @@ dialog.native-dialog.dialog-large {
 .kitchen-ready-row { display:grid; grid-template-columns:auto 1fr; gap:5px 10px; padding:10px 12px; border:1px solid #3b3833; border-radius:12px; background:#22211f; }
 .kitchen-ready-row span:last-child { grid-column:2; color:#b9b0a2; font-size:.82rem; }
 .kitchen-alert-backdrop { position:fixed; z-index:100; inset:0; display:grid; place-items:center; overflow-y:auto; padding:max(18px,env(safe-area-inset-top)) 16px max(18px,env(safe-area-inset-bottom)); background:rgb(24 20 16 / 82%); color:#29241e; }
+.cook-wait-backdrop { position:fixed; z-index:130; inset:0; display:grid; place-items:center; padding:max(20px,env(safe-area-inset-top)) 18px max(20px,env(safe-area-inset-bottom)); background:rgb(30 26 22 / 84%); backdrop-filter:blur(7px); overscroll-behavior:none; touch-action:none; }
+.cook-wait-card { display:grid; justify-items:center; gap:10px; width:min(100%,420px); padding:30px 25px; border:1px solid #eadcc6; border-radius:24px; background:#fffaf1; box-shadow:0 22px 70px rgb(0 0 0 / 30%); text-align:center; animation:cook-wait-arrive .32s cubic-bezier(.2,.8,.2,1) both; }
+.cook-wait-card .eyebrow { margin:3px 0 0; }
+.cook-wait-card h2 { margin:0; color:#30271f; font-size:1.55rem; }
+.cook-wait-card p { margin:0; color:#665b4d; line-height:1.5; }
+.cook-wait-card strong { color:#8f4108; }
+.cook-wait-note { padding-top:4px; font-size:.82rem; }
+.cook-wait-spinner { display:grid; width:64px; height:64px; place-items:center; border-radius:50%; color:#a9500b; background:#f8e6c9; animation:cook-wait-pulse 1.8s ease-in-out infinite; }
+@keyframes cook-wait-arrive { from { opacity:0; transform:translateY(9px) scale(.98); } to { opacity:1; transform:translateY(0) scale(1); } }
+@keyframes cook-wait-pulse { 50% { transform:scale(1.07); box-shadow:0 0 0 9px rgb(230 154 54 / 12%); } }
 .kitchen-alert-ticket { width:min(100%,460px); max-height:calc(100dvh - 36px); overflow:auto; border:1px solid #f5ead6; border-radius:22px; background:#fffaf0; box-shadow:0 28px 90px rgb(0 0 0 / 42%); animation:kitchen-ticket-in 300ms cubic-bezier(.16,1,.3,1) both; }
 .kitchen-alert-head { display:flex; align-items:flex-start; justify-content:space-between; gap:12px; padding:22px 22px 17px; border-bottom:1px solid #e9dfce; }
 .kitchen-alert-kicker { display:flex; align-items:center; gap:8px; color:#994609; font-size:.72rem; font-weight:850; letter-spacing:.1em; text-transform:uppercase; }
@@ -1104,9 +1119,13 @@ dialog.native-dialog.dialog-large {
 .kitchen-alert-timer b { color:#342e26; font-size:1.4rem; line-height:1.05; }
 .kitchen-alert-timer small { color:#756a5d; font-size:.6rem; line-height:1.15; text-align:center; }
 .kitchen-alert-timer.is-urgent { animation:kitchen-timer-alert .7s ease-in-out infinite alternate; }
+.kitchen-alert-response-pending { display:grid; width:82px; height:82px; flex:0 0 auto; align-content:center; justify-items:center; gap:3px; border:2px solid #e7b967; border-radius:50%; color:#845016; background:#fff4df; }
+.kitchen-alert-response-pending b { font-size:.85rem; }
+.kitchen-alert-response-pending small { color:#756a5d; font-size:.68rem; }
 .kitchen-alert-buttons { display:grid; gap:9px; }
 .kitchen-alert-buttons .btn { min-height:50px; border-radius:13px; font-size:.96rem; font-weight:750; }
 .kitchen-alert-accept { color:#fffaf0; background:#27231e; }
+.btn-alert-reject { min-height:46px; border:1px solid #b94d3f; color:#a13e31; background:#fff7f4; }
 .btn-alert-outline { border:1px solid #c9bda9; color:#342e26; background:transparent; }
 @keyframes kitchen-ticket-in { from { opacity:0; transform:translateY(12px) scale(.985); } to { opacity:1; transform:translateY(0) scale(1); } }
 @keyframes kitchen-body-in { from { opacity:0; transform:translateY(6px); } to { opacity:1; transform:translateY(0); } }
