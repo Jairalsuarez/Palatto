@@ -1470,16 +1470,7 @@ dialog.native-dialog.dialog-large {
 
 .cash-actions { display: grid; grid-template-columns: repeat(auto-fit, minmax(70px, 1fr)); gap: 8px; margin: 12px 0; }
 .cash-actions:has(> :nth-child(2):last-child) { grid-template-columns: repeat(2, 1fr); }
-.cash-close-card { display: grid; gap: 18px; margin: 18px 0 24px; padding: 20px; border: 1px solid var(--line); border-radius: 20px; background: var(--surface, #fff); box-shadow: 0 8px 26px color-mix(in oklab, var(--ink) 5%, transparent); }
-.cash-close-copy { display: flex; align-items: flex-start; gap: 13px; }
-.cash-close-copy h2 { margin: 0 0 5px; font-size: 1rem; }
-.cash-close-copy p { margin: 0; color: var(--muted); font-size: .88rem; line-height: 1.5; }
-.cash-close-icon, .cash-reconcile-badge { display: grid; flex: 0 0 auto; place-items: center; width: 42px; height: 42px; color: var(--brand); background: color-mix(in oklab, var(--brand) 11%, white); border-radius: 14px; }
-.cash-close-card .btn { min-height: 48px; }
-.cash-reconcile-dialog { display: grid; gap: 18px; }
-.cash-reconcile-intro { display: flex; align-items: flex-start; gap: 12px; }
-.cash-reconcile-intro strong { display: block; margin: 2px 0 4px; }
-.cash-reconcile-intro p { margin: 0; color: var(--muted); font-size: .88rem; line-height: 1.5; }
+.cash-reconcile-dialog { display: grid; gap: 14px; }
 .cash-reconcile-table { overflow: hidden; border: 1px solid var(--line); border-radius: 14px; }
 .cash-reconcile-head, .cash-reconcile-row { display: grid; grid-template-columns: minmax(112px, 1fr) minmax(82px, auto) minmax(92px, 110px); align-items: center; gap: 8px; padding: 10px 12px; }
 .cash-reconcile-head { color: var(--muted); background: color-mix(in oklab, var(--line) 24%, white); font-size: .72rem; font-weight: 700; text-transform: uppercase; letter-spacing: .04em; }
@@ -1496,7 +1487,9 @@ dialog.native-dialog.dialog-large {
 .cash-reconcile-note { margin: 0; color: var(--muted); font-size: .78rem; line-height: 1.45; }
 .cash-reconcile-actions { display: grid; grid-template-columns: 1fr 1.5fr; gap: 9px; }
 .cash-reconcile-actions .btn { min-height: 48px; }
+.cash-action.reconcile { color: var(--brand); background: color-mix(in oklab, var(--brand) 9%, white); }
 @media (max-width: 380px) {
+  .cash-actions { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .cash-reconcile-head, .cash-reconcile-row { grid-template-columns: minmax(90px, 1fr) minmax(66px, auto) minmax(80px, 96px); gap: 5px; padding-inline: 8px; }
   .cash-reconcile-row > span { gap: 4px; font-size: .78rem; }
   .cash-reconcile-row > b { font-size: .78rem; }
