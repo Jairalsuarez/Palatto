@@ -3,7 +3,7 @@ import type { FormEvent, ReactNode } from 'react'
 import {
   ArrowDownLeft, ArrowRight, ArrowUpRight, Banknote, BarChart3, Bell, BookOpen, Check, CheckCheck,
   ChevronLeft, ClipboardList, Coffee, CreditCard, Download, Flame, History, KeyRound, LogOut, Minus, PackageOpen,
-  Eye, EyeOff, Pencil, Plus, Power, Receipt, Search, ShieldCheck, ShoppingBag, Trash2, Users, X, Timer, Volume2, VolumeX, WalletCards,
+  Eye, EyeOff, Pencil, Plus, Power, Receipt, Search, ShieldCheck, ShoppingBag, Trash2, Users, X, Volume2, VolumeX, WalletCards,
 } from 'lucide-react'
 import { Modal } from './Modal'
 import { useRestaurant } from './lib/useRestaurant'
@@ -68,7 +68,6 @@ export default function App() {
   const [detail, setDetail] = useState<string | null>(null)
   const [payRequest, setPayRequest] = useState<string | Order | null>(null)
   const [history, setHistory] = useState<Route[]>([])
-  const [clock, setClock] = useState(Date.now())
   const [manualPrep, setManualPrep] = useState<{ order: Order; value: string; secondsLeft: number } | null>(null)
   const [alertOrder, setAlertOrder] = useState<Order | null>(null)
   const [alertResumeSeconds, setAlertResumeSeconds] = useState<number | null>(null)
@@ -86,11 +85,6 @@ export default function App() {
   const historyInitialized = useRef(false)
 
   useEffect(() => { setSensitiveValuesHidden(hideValues) }, [hideValues])
-
-  useEffect(() => {
-    const timer = window.setInterval(() => setClock(Date.now()), 1000)
-    return () => window.clearInterval(timer)
-  }, [])
 
   useEffect(() => {
     if (!canKitchen(app.role)) { setAlertOrder(null); return }
@@ -295,7 +289,7 @@ export default function App() {
 
       {page === 'pedidos' && <>
         <Home app={app} detail={detail} setDetail={setDetail} payRequest={payRequest} payHandled={() => setPayRequest(null)} onNew={() => navigate('nuevo')} onDrinks={() => navigate('bebidas')} onSummary={() => navigate('resumen')} onCash={business => go('cajas', business)} onEdit={edit}/>
-        {canKitchen(app.role) && <KitchenBoard app={app} now={clock} onAccept={setAlertOrder} onManual={(order,minutes) => { const left=Math.max(0,Math.ceil((new Date(order.created_at).getTime()+30000-Date.now())/1000)); setManualPrep({order,value:String(minutes),secondsLeft:left}); setAlertOrder(null) }}/>}
+
       </>}
       {page === 'resumen' && <DailySummary app={app} onCash={business => go('cajas', business)} onOrder={openOrder}/>}
       {page === 'bebidas' && <DrinksSalesPage app={app} back={back}/>}
@@ -419,49 +413,6 @@ function Home({ app, detail, setDetail, payRequest, payHandled, onNew, onDrinks,
 function kitchenTimeLabel(seconds: number) {
   const value = Math.max(0, seconds)
   return `${Math.floor(value / 60)}:${String(value % 60).padStart(2, '0')}`
-}
-
-function KitchenBoard({ app, now, onAccept, onManual }: { app: Restaurant; now: number; onAccept: (order: Order) => void; onManual: (order: Order, minutes: number) => void }) {
-  const orders = app.data.orders.filter(order => !order.paid && order.status === 'en_proceso').sort((a,b) => a.created_at.localeCompare(b.created_at))
-  const incoming = orders.filter(order => !order.accepted_at)
-  const preparing = orders.filter(order => order.accepted_at)
-  return <KitchenQueue app={app} now={now} orders={orders} incoming={incoming} preparing={preparing} onAccept={onAccept} onManual={onManual}/>
-}
-
-function KitchenQueue({ app, now, orders, incoming, preparing, onAccept, onManual }: { app: Restaurant; now: number; orders: Order[]; incoming: Order[]; preparing: Order[]; onAccept: (order: Order) => void; onManual: (order: Order, minutes: number) => void }) {
-  const [estimates, setEstimates] = useState<Record<string,number>>({})
-  useEffect(() => {
-    let cancelled = false
-    void Promise.all(incoming.map(async order => {
-      try { const minutes = await app.kitchenEstimate(order); if (!cancelled) setEstimates(current => ({...current,[order.id]:minutes})) }
-      catch { /* el pedido puede ser aceptado en otro dispositivo durante la consulta */ }
-    }))
-    return () => { cancelled=true }
-  }, [incoming.map(order => `${order.id}:${order.version}`).join(','), app.kitchenEstimate])
-  return <section className="kitchen-page">
-    <div className="page-head"><div><p className="eyebrow">Área de preparación</p><h1>Cocina</h1></div><span className="kitchen-count">{orders.length} pendientes</span></div>
-    <p className="kitchen-intro">Acepta los pedidos en orden y mantén visible el tiempo estimado de cada uno.</p>
-    {incoming.length > 0 && <section className="kitchen-section"><h2>Nuevos pedidos</h2><div className="kitchen-grid">{incoming.map(order => <KitchenOrderCard key={order.id} app={app} order={order} now={now} recommendation={estimates[order.id] || recommendedPrepMinutes(order,app.data.orders,app.data.products)} onAccept={onAccept} onManual={minutes => onManual(order,minutes)}/>)}</div></section>}
-    {preparing.length > 0 && <section className="kitchen-section"><h2>En preparación</h2><div className="kitchen-grid">{preparing.map(order => <KitchenOrderCard key={order.id} app={app} order={order} now={now} recommendation={order.prep_minutes || 10} onAccept={onAccept} onManual={minutes => onManual(order,minutes)}/>)}</div></section>}
-    {!orders.length && <Empty title="Cocina está al día">Los pedidos nuevos aparecerán aquí al instante.</Empty>}
-    {app.error && <p className="alert alert-error" role="alert">{app.error}</p>}
-    <section className="kitchen-section kitchen-ready"><h2>Listos</h2>{app.data.orders.filter(order => order.status === 'completado' && !order.paid).slice(-8).reverse().map(order => <div className="kitchen-ready-row" key={order.id}><b>#{number(order.number)}</b><span>{order.customer}</span><span>{order.items.map(item => `${item.quantity} × ${item.name}`).join(' · ')}</span></div>)}{!app.data.orders.some(order => order.status === 'completado' && !order.paid) && <p className="muted small">Aún no hay pedidos listos sin cobrar.</p>}</section>
-  </section>
-}
-
-function KitchenOrderCard({ app, order, now, recommendation, onManual }: { app: Restaurant; order: Order; now: number; recommendation: number; onAccept: (order: Order) => void; onManual: (minutes: number) => void }) {
-  const waitingSeconds = Math.max(0, Math.ceil((new Date(order.created_at).getTime() + 30000 - now) / 1000))
-  const remainingSeconds = order.ready_at ? Math.ceil((new Date(order.ready_at).getTime() - now) / 1000) : 0
-  const progress = order.accepted_at ? Math.min(100, Math.max(0, 100 - remainingSeconds / Math.max(60, (order.prep_minutes || recommendation) * 60) * 100)) : 0
-  return <article className={`kitchen-card ${order.accepted_at ? 'is-preparing' : 'is-new'}`}>
-    <div className="kitchen-order-head"><span className="order-number">#{number(order.number)}</span><span>{dateTime(order.created_at)}</span></div>
-    <h3>{order.customer}</h3>
-    <ul>{order.items.map(item => <li key={item.product_id}><b>{displayNumber(item.quantity)}×</b> {item.name}</li>)}</ul>
-    {order.notes && <p className="detail-note">{order.notes}</p>}
-    {!order.accepted_at
-      ? <><div className="kitchen-suggest"><Timer size={18}/><span>Recomendado</span><b>{recommendation} min</b></div><div className="kitchen-actions"><button className="btn btn-primary btn-lg btn-block" disabled={app.busy} onClick={() => void app.acceptKitchenOrder(order,recommendation)}>Aceptar · {recommendation} min</button><button className="btn btn-ghost btn-block" disabled={app.busy} onClick={() => onManual(recommendation)}>Otro tiempo</button></div><small className="kitchen-deadline">La alerta inicial dura 30 segundos · {kitchenTimeLabel(waitingSeconds)} restantes</small></>
-      : <><div className="kitchen-clock-wrap"><div className={`kitchen-clock ${remainingSeconds < 0 ? 'is-late' : ''}`} style={{ '--progress': `${progress}%` } as React.CSSProperties}><span>{remainingSeconds < 0 ? `+${kitchenTimeLabel(-remainingSeconds)}` : kitchenTimeLabel(remainingSeconds)}</span><small>{remainingSeconds < 0 ? 'retraso' : 'restante'}</small></div><div><b>Listo a las {new Date(order.ready_at!).toLocaleTimeString('es-EC',{hour:'2-digit',minute:'2-digit'})}</b><small>{order.prep_minutes} min · aceptado {dateTime(order.accepted_at!)}</small></div></div><button className="btn btn-money btn-lg btn-block" disabled={app.busy} onClick={() => void app.advanceKitchenOrder(order)}>Marcar listo <Check size={18}/></button></>}
-  </article>
 }
 
 function KitchenAlert({ app, order, initialSeconds, soundEnabled, onSound, onDismiss, onManual }: { app: Restaurant; order: Order; initialSeconds: number | null; soundEnabled: boolean; onSound: () => void; onDismiss: () => void; onManual: (minutes: number, secondsLeft: number) => void }) {
