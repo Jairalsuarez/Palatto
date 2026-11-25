@@ -206,7 +206,7 @@ export function useRestaurant() {
             const result = await rpc('kitchen_estimate_minutes', { p_id: order.id });
             return Number(result);
         },
-        saveOrder: async (customer: string, notes: string, items: Item[], order?: Order, takeaway = false, prepMinutes?: number) => {
+        saveOrder: async (customer: string, notes: string, items: Item[], order?: Order, takeaway = false, prepMinutes?: number, askKitchen = false) => {
             let savedId = order?.id || '';
             let updatedOrder: Order | null = null;
             const ok = await run(async () => {
@@ -234,7 +234,7 @@ export function useRestaurant() {
                     if (error) throw error;
                     updatedOrder = refreshed as Order;
                 } else {
-                    savedId = String(await rpc('create_order', { ...args, p_prep_minutes: prepMinutes ?? null }));
+                    savedId = String(await rpc('create_order', { ...args, p_prep_minutes: prepMinutes ?? null, p_ask_kitchen: askKitchen }));
                 }
             }, order ? 'Pedido actualizado' : 'Pedido puesto en cola', () => ({
                 event: order ? 'order_updated' : 'order_created',

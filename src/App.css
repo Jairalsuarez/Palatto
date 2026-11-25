@@ -764,6 +764,18 @@ input::placeholder, textarea::placeholder { color: color-mix(in oklab, var(--mut
 }
 .order-chevron { margin-left: auto; color: var(--muted); }
 .order-meta { color: var(--muted); font-size: .76rem; font-weight: 600; }
+.order-prep-meta { display:flex; align-items:center; justify-content:space-between; gap:10px; }
+.prep-clock { position:relative; display:inline-flex; flex:0 0 auto; width:40px; height:40px; align-items:center; justify-content:center; color:#795023; font-variant-numeric:tabular-nums; }
+.prep-clock svg { position:absolute; inset:0; width:100%; height:100%; transform:rotate(-90deg); overflow:visible; }
+.prep-clock circle { fill:none; stroke-width:3; }
+.prep-clock-track { stroke:#e8dfd2; }
+.prep-clock-progress { stroke:#dd8a23; stroke-linecap:round; stroke-dasharray:107; transition:stroke-dashoffset .55s linear,stroke .2s ease; }
+.prep-clock b { font-size:.63rem; line-height:1; }
+.prep-clock > svg + b + svg { display:none; }
+.prep-clock.is-near { color:#a84d1b; }
+.prep-clock.is-near .prep-clock-progress { stroke:#da7625; }
+.prep-clock.is-ready { color:#437958; }
+.prep-clock.is-ready .prep-clock-progress { stroke:#458a5c; stroke-dashoffset:0!important; }
 .order-items {
   margin-top: 2px;
   color: var(--ink-soft);
@@ -1056,7 +1068,7 @@ dialog.native-dialog.dialog-large {
 .time-wheel-group { display:flex; align-items:center; justify-content:center; gap:9px; }
 .time-wheel-field { display:grid; justify-items:center; gap:7px; }
 .time-wheel-field > span { color:#716657; font-size:.75rem; font-weight:750; }
-.time-wheel { position:relative; width:92px; height:144px; overflow-y:auto; overscroll-behavior:contain; scroll-snap-type:y mandatory; scroll-behavior:smooth; -webkit-overflow-scrolling:touch; scrollbar-width:none; border-radius:15px; background:#f3eadb; outline:none; }
+.time-wheel { position:relative; width:92px; height:144px; overflow-y:auto; overscroll-behavior:contain; scroll-snap-type:y mandatory; scroll-behavior:smooth; -webkit-overflow-scrolling:touch; scrollbar-width:none; border-radius:15px; background:#f3eadb; outline:none; touch-action:pan-y; }
 .time-wheel::-webkit-scrollbar { display:none; }
 .time-wheel::after { position:absolute; inset:48px 5px; z-index:1; border-block:1px solid #d7b893; border-radius:9px; background:rgb(222 132 54 / 9%); content:""; pointer-events:none; }
 .time-wheel:focus-visible { box-shadow:0 0 0 3px rgb(220 112 28 / 30%); }

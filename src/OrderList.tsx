@@ -1,10 +1,32 @@
 import { Fragment } from 'react'
-import { Banknote, ChevronRight, Users } from 'lucide-react'
+import { Banknote, ChevronRight, Timer, Users } from 'lucide-react'
+import { useEffect, useState } from 'react'
 import { displayNumber, displayNumericText, money, orderService, orderTotal } from './lib/domain'
 import type { Order, OrderPayment } from './lib/domain'
 
 const number = (n: number) => displayNumber(n)
 const time = (value: string) => displayNumericText(new Date(value).toLocaleTimeString('es-EC', { hour: '2-digit', minute: '2-digit' }))
+
+function PrepClock({ order }: { order: Order }) {
+  const [, tick] = useState(0)
+  useEffect(() => {
+    const timer = window.setInterval(() => tick(value => value + 1), 1000)
+    return () => window.clearInterval(timer)
+  }, [])
+  if (!order.ready_at || !order.accepted_at) return null
+  const start = new Date(order.accepted_at).getTime()
+  const end = new Date(order.ready_at).getTime()
+  const now = Date.now()
+  const duration = Math.max(1, end - start)
+  const remaining = end - now
+  const progress = Math.max(0, Math.min(1, remaining / duration))
+  const seconds = Math.max(0, Math.ceil(remaining / 1000))
+  const label = remaining > 0 ? `${Math.floor(seconds / 60)}:${String(seconds % 60).padStart(2, '0')}` : 'Listo'
+  return <span className={`prep-clock ${remaining <= 5 * 60_000 ? 'is-near' : ''} ${remaining <= 0 ? 'is-ready' : ''}`} role="img" aria-label={remaining > 0 ? `Tiempo restante ${label}` : 'Tiempo estimado cumplido'}>
+    <svg viewBox="0 0 40 40" aria-hidden="true"><circle className="prep-clock-track" cx="20" cy="20" r="17"/><circle className="prep-clock-progress" cx="20" cy="20" r="17" style={{ strokeDashoffset: `${107 * (1 - progress)}` }}/></svg>
+    <b>{label}</b><Timer size={13} aria-hidden="true"/>
+  </span>
+}
 
 export function OrderList({ orders, canPay, payments, open, pay }: { orders: Order[]; canPay: boolean; payments: OrderPayment[]; open: (order: Order) => void; pay: (order: Order) => void }) {
   const completed = orders.length > 0 && orders.every(order => order.paid)
@@ -39,7 +61,7 @@ export function OrderList({ orders, canPay, payments, open, pay }: { orders: Ord
           <span className="order-meta">
             {orderService(order)} · {time(order.created_at)} · {displayNumber(items)} artículo{items === 1 ? '' : 's'}{!order.paid && order.status === 'completado' ? ' · Listo para entregar' : ''}
           </span>
-          {!order.paid && order.accepted_at && order.ready_at && <span className="order-meta">Listo {time(order.ready_at)} · estimado {order.prep_minutes} min</span>}
+          {!order.paid && order.accepted_at && order.ready_at && <span className="order-meta order-prep-meta">Listo {time(order.ready_at)} · estimado {order.prep_minutes} min <PrepClock order={order}/></span>}
           <span className="order-items">{summary}</span>
           {order.notes && <span className="order-note-line">{order.notes}</span>}
           {!!split.length && <span className="order-split-line"><Users size={14} aria-hidden="true"/>{displayNumber(split.length)} {split.length === 1 ? 'pago' : 'pagos'} · falta {money(remaining)}</span>}
