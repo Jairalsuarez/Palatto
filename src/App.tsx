@@ -3,7 +3,7 @@ import type { FormEvent, ReactNode } from 'react'
 import {
   ArrowDownLeft, ArrowRight, ArrowUpRight, Banknote, BarChart3, Bell, BookOpen, Check, CheckCheck,
   ChevronLeft, ClipboardList, Coffee, CreditCard, Download, Flame, History, KeyRound, LogOut, Minus, PackageOpen,
-  Eye, EyeOff, Pencil, Plus, Power, Receipt, Search, ShieldCheck, ShoppingBag, Trash2, Users, X, Volume2, VolumeX, WalletCards,
+  Eye, EyeOff, Pencil, Plus, Power, Receipt, RefreshCw, Search, ShieldCheck, ShoppingBag, Trash2, Users, X, Volume2, VolumeX, WalletCards,
 } from 'lucide-react'
 import { Modal } from './Modal'
 import { useRestaurant } from './lib/useRestaurant'
@@ -62,6 +62,7 @@ export default function App() {
   const app = useRestaurant()
   const [installPrompt, setInstallPrompt] = useState<Event | null>(null)
   const [installed, setInstalled] = useState(false)
+  const [updateAvailable, setUpdateAvailable] = useState(false)
   const [page, setPage] = useState<Page>('pedidos')
   const [editing, setEditing] = useState<Order | undefined>()
   const [cashBusiness, setCashBusiness] = useState<Business | null>(null)
@@ -73,6 +74,7 @@ export default function App() {
   const [alertPaused, setAlertPaused] = useState(false)
   const [soundEnabled, setSoundEnabled] = useState(true)
   const audioRef = useRef<AudioContext | null>(null)
+  const kitchenBellRef = useRef<HTMLAudioElement | null>(null)
   const audioUnlocked = useRef(false)
   const alertedOrders = useRef(new Set<string>())
   const [hideValues, setHideValues] = useState(() => {
@@ -90,6 +92,29 @@ export default function App() {
     : undefined
 
   useEffect(() => { setSensitiveValuesHidden(hideValues) }, [hideValues])
+
+  useEffect(() => {
+    let checking = false
+    const checkForUpdate = async () => {
+      if (checking) return
+      checking = true
+      try {
+        const response = await fetch('/version.json', { cache: 'no-store' })
+        if (!response.ok) return
+        const deployment = await response.json() as { version?: string }
+        setUpdateAvailable(Boolean(deployment.version && deployment.version !== __APP_BUILD_ID__))
+      } catch {
+        // Keep the application usable while offline or while Vercel is unavailable.
+      } finally {
+        checking = false
+      }
+    }
+    void checkForUpdate()
+    const interval = window.setInterval(() => { void checkForUpdate() }, 60_000)
+    const onVisible = () => { if (document.visibilityState === 'visible') void checkForUpdate() }
+    document.addEventListener('visibilitychange', onVisible)
+    return () => { window.clearInterval(interval); document.removeEventListener('visibilitychange', onVisible) }
+  }, [])
 
   useEffect(() => {
     const pendingRequests = app.data.orders.filter(order => order.prep_requested)
@@ -165,32 +190,23 @@ export default function App() {
     let context = audioRef.current
     if (!context) { context = new AudioContext(); audioRef.current = context }
     if (context.state === 'suspended') void context.resume()
-    const playKitchenAlarm = (start: number) => {
-      const notes = [1046, 784, 1046, 784, 1174]
-      notes.forEach((frequency, index) => {
-        const at = start + index * .16
-        const oscillator = context!.createOscillator()
-        const gain = context!.createGain()
-        oscillator.type = 'square'
-        oscillator.frequency.setValueAtTime(frequency, at)
-        gain.gain.setValueAtTime(.0001, at)
-        gain.gain.exponentialRampToValueAtTime(.24, at + .012)
-        gain.gain.setValueAtTime(.24, at + .105)
-        gain.gain.exponentialRampToValueAtTime(.0001, at + .145)
-        oscillator.connect(gain); gain.connect(context!.destination)
-        oscillator.start(at); oscillator.stop(at + .15)
-      })
+    const playKitchenAlarm = () => {
+      const bell = kitchenBellRef.current || new Audio('/sounds/service-bell.ogg')
+      kitchenBellRef.current = bell
+      bell.volume = 1
+      bell.currentTime = 0
+      void bell.play().catch(() => undefined)
     }
-    playKitchenAlarm(context.currentTime)
+    playKitchenAlarm()
     if (typeof navigator.vibrate === 'function') navigator.vibrate([180, 80, 180, 80, 340])
     const timer = window.setInterval(() => {
       if (context?.state !== 'running' || document.visibilityState !== 'visible') return
-      playKitchenAlarm(context.currentTime)
+      playKitchenAlarm()
       if (typeof navigator.vibrate === 'function') navigator.vibrate([180, 80, 180, 80, 340])
     }, 1500)
     const stopVibration = () => { if (typeof navigator.vibrate === 'function') navigator.vibrate(0) }
     document.addEventListener('visibilitychange', stopVibration)
-    return () => { window.clearInterval(timer); document.removeEventListener('visibilitychange', stopVibration); stopVibration() }
+    return () => { window.clearInterval(timer); document.removeEventListener('visibilitychange', stopVibration); stopVibration(); if (kitchenBellRef.current) { kitchenBellRef.current.pause(); kitchenBellRef.current.currentTime = 0 } }
   }, [alertOrder, alertPaused, soundEnabled])
 
   useEffect(() => {
@@ -198,6 +214,13 @@ export default function App() {
     const unlock = () => {
       if (!audioRef.current) audioRef.current = new AudioContext()
       if (audioRef.current.state === 'suspended') void audioRef.current.resume()
+      if (!kitchenBellRef.current) {
+        const bell = new Audio('/sounds/service-bell.ogg')
+        bell.preload = 'auto'
+        bell.muted = true
+        kitchenBellRef.current = bell
+        void bell.play().then(() => { bell.pause(); bell.currentTime = 0; bell.muted = false }).catch(() => { bell.muted = false })
+      }
       audioUnlocked.current = true
     }
     window.addEventListener('pointerdown', unlock, { once: true })
@@ -324,6 +347,10 @@ export default function App() {
     setNotificationsSeen(seen)
     go('notificaciones')
   }
+  function toggleNotifications() {
+    if (page === 'notificaciones') { back(); return }
+    openNotifications()
+  }
 
   return <div className={`app-shell ${hideValues ? 'privacy-values-hidden' : ''}`}>
     <header className="app-bar">
@@ -339,7 +366,7 @@ export default function App() {
           setSensitiveValuesHidden(next)
           setHideValues(next)
         }}>{hideValues ? <Eye size={19}/> : <EyeOff size={19}/>}</button>
-        <button className="notification-button" onClick={openNotifications} aria-label={unreadNotifications ? `Notificaciones, ${unreadNotifications} sin leer` : 'Notificaciones'}>
+        <button className="notification-button" onClick={toggleNotifications} aria-label={page === 'notificaciones' ? 'Cerrar notificaciones' : unreadNotifications ? `Notificaciones, ${unreadNotifications} sin leer` : 'Notificaciones'} aria-pressed={page === 'notificaciones'}>
           <Bell size={19}/>
           {unreadNotifications > 0 && <i className="notification-badge">{displayNumber(unreadNotifications > 9 ? '9+' : unreadNotifications)}</i>}
         </button>
@@ -348,6 +375,10 @@ export default function App() {
         </button>
       </div>
     </header>
+
+    {updateAvailable && <button type="button" className="app-update-banner" onClick={() => window.location.reload()} aria-live="polite">
+      <RefreshCw size={17} aria-hidden="true"/><span><strong>Nueva actualización disponible</strong><small>Toca para recargar Palatto</small></span><ArrowRight size={17} aria-hidden="true"/>
+    </button>}
 
     <main className={`app-main ${page === 'nuevo' ? 'app-main-flush' : ''}`}>
       {app.error && <div className="alert alert-error global-alert" role="alert">
