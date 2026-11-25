@@ -764,18 +764,21 @@ input::placeholder, textarea::placeholder { color: color-mix(in oklab, var(--mut
 }
 .order-chevron { margin-left: auto; color: var(--muted); }
 .order-meta { color: var(--muted); font-size: .76rem; font-weight: 600; }
-.order-prep-meta { display:flex; align-items:center; justify-content:space-between; gap:10px; }
-.prep-clock { position:relative; display:inline-flex; flex:0 0 auto; width:40px; height:40px; align-items:center; justify-content:center; color:#795023; font-variant-numeric:tabular-nums; }
-.prep-clock svg { position:absolute; inset:0; width:100%; height:100%; transform:rotate(-90deg); overflow:visible; }
+.order-prep-line { display:flex; align-items:center; justify-content:space-between; gap:12px; margin-top:5px; color:var(--muted); font-size:.76rem; font-weight:650; }
+.prep-clock-group { display:inline-flex; flex:0 0 auto; align-items:center; gap:8px; color:#795023; font-variant-numeric:tabular-nums; }
+.prep-clock { position:relative; display:inline-flex; flex:0 0 auto; width:42px; height:42px; align-items:center; justify-content:center; }
+.prep-clock-ring { position:absolute; inset:0; width:100%; height:100%; transform:rotate(-90deg); overflow:visible; }
+.prep-clock-icon { position:relative; z-index:1; width:15px; height:15px; color:currentColor; }
 .prep-clock circle { fill:none; stroke-width:3; }
 .prep-clock-track { stroke:#e8dfd2; }
 .prep-clock-progress { stroke:#dd8a23; stroke-linecap:round; stroke-dasharray:107; transition:stroke-dashoffset .55s linear,stroke .2s ease; }
-.prep-clock b { font-size:.63rem; line-height:1; }
-.prep-clock > svg + b + svg { display:none; }
-.prep-clock.is-near { color:#a84d1b; }
-.prep-clock.is-near .prep-clock-progress { stroke:#da7625; }
-.prep-clock.is-ready { color:#437958; }
-.prep-clock.is-ready .prep-clock-progress { stroke:#458a5c; stroke-dashoffset:0!important; }
+.prep-clock-group.is-near { color:#a84d1b; }
+.prep-clock-group.is-near .prep-clock-progress { stroke:#da7625; }
+.prep-clock-group.is-ready { color:#437958; }
+.prep-clock-group.is-ready .prep-clock-progress { stroke:#458a5c; stroke-dashoffset:0!important; }
+.prep-clock-reading { display:grid; gap:1px; line-height:1.1; }
+.prep-clock-reading b { color:currentColor; font-size:.92rem; font-weight:850; }
+.prep-clock-reading small { color:var(--muted); font-size:.65rem; font-weight:650; }
 .order-items {
   margin-top: 2px;
   color: var(--ink-soft);

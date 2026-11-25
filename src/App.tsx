@@ -112,9 +112,12 @@ export default function App() {
           app.setNotice(`Pedido #${order.number}: faltan unos 5 minutos para que esté listo.`)
           if (document.visibilityState === 'visible' && audioRef.current?.state === 'running') {
             const context = audioRef.current
-            const oscillator = context.createOscillator(); const gain = context.createGain()
-            oscillator.frequency.value = 880; gain.gain.value = .12
-            oscillator.connect(gain); gain.connect(context.destination); oscillator.start(); oscillator.stop(context.currentTime + .22)
+            ;[880, 1175, 880].forEach((frequency, index) => {
+              const oscillator = context.createOscillator(); const gain = context.createGain(); const at = context.currentTime + index * .22
+              oscillator.type = 'square'; oscillator.frequency.value = frequency
+              gain.gain.setValueAtTime(.0001, at); gain.gain.exponentialRampToValueAtTime(.22, at + .015); gain.gain.setValueAtTime(.22, at + .13); gain.gain.exponentialRampToValueAtTime(.0001, at + .18)
+              oscillator.connect(gain); gain.connect(context.destination); oscillator.start(at); oscillator.stop(at + .19)
+            })
             if (typeof navigator.vibrate === 'function') navigator.vibrate([100, 70, 100])
           }
         }
@@ -159,7 +162,7 @@ export default function App() {
   }, [alertOrder, alertPaused, soundEnabled])
 
   useEffect(() => {
-    if (!canKitchen(app.role) || audioUnlocked.current) return
+    if (audioUnlocked.current) return
     const unlock = () => {
       if (!audioRef.current) audioRef.current = new AudioContext()
       if (audioRef.current.state === 'suspended') void audioRef.current.resume()
@@ -168,7 +171,7 @@ export default function App() {
     window.addEventListener('pointerdown', unlock, { once: true })
     window.addEventListener('keydown', unlock, { once: true })
     return () => { window.removeEventListener('pointerdown', unlock); window.removeEventListener('keydown', unlock) }
-  }, [app.role])
+  }, [])
 
   useEffect(() => {
     if (historyInitialized.current) return
