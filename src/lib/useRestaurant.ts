@@ -327,11 +327,12 @@ export function useRestaurant() {
             event: 'cash_movement',
             details: { actorName: profile?.name, amount, method, kind, reason: reason.trim() },
         })),
-        reconcileCash: (business: Business) => {
+        reconcileCash: (business: Business, countedCash: number, countedTransfer: number) => {
             let reconciliation: { id: string; cash_balance: number; transfer_balance: number } | null = null;
             return run(async () => {
                 if (!canCash(role, business) || business !== 'palatto') throw new Error('No puedes cuadrar esta caja.');
-                const { data: result, error } = await supabase!.rpc('reconcile_cash', { p_id: crypto.randomUUID() });
+                if (!Number.isSafeInteger(countedCash) || countedCash < 0 || !Number.isSafeInteger(countedTransfer) || countedTransfer < 0) throw new Error('Ingresa saldos contados válidos.');
+                const { data: result, error } = await supabase!.rpc('reconcile_cash', { p_id: crypto.randomUUID(), p_counted_cash: countedCash, p_counted_transfer: countedTransfer });
                 if (error) throw error;
                 if (!result || typeof result.id !== 'string') throw new Error('No se recibió el registro de cuadre. Actualiza la pantalla.');
                 reconciliation = result as { id: string; cash_balance: number; transfer_balance: number };
@@ -342,6 +343,8 @@ export function useRestaurant() {
                     reconciliationId: reconciliation?.id,
                     cashBalance: reconciliation?.cash_balance,
                     transferBalance: reconciliation?.transfer_balance,
+                    countedCash,
+                    countedTransfer,
                 },
             }));
         },

@@ -1120,6 +1120,8 @@ function Cash({ app, back, business = 'palatto', onOrder }: { app: Restaurant; b
   const [viewReceipt, setViewReceipt] = useState<string | null>(null)
   const [selected, setSelected] = useState<Movement | null>(null)
   const [confirmReconcile, setConfirmReconcile] = useState(false)
+  const [countedCash, setCountedCash] = useState('')
+  const [countedTransfer, setCountedTransfer] = useState('')
 
   const cashOnly = business === 'carreta'
   const movements = app.data.movements.filter(movement => movement.business === business && (!cashOnly || movement.method === 'efectivo')).sort((a, b) => b.created_at.localeCompare(a.created_at))
@@ -1166,9 +1168,17 @@ function Cash({ app, back, business = 'palatto', onOrder }: { app: Restaurant; b
           <button className="cash-action in" onClick={() => openForm('ingreso')}><Plus size={20}/>Ingresar</button>
           <button className="cash-action expense" onClick={() => openForm('gasto')}><ShoppingBag size={20}/>Gasto</button>
           <button className="cash-action out" onClick={() => openForm('retiro')}><ArrowDownLeft size={20}/>Retirar</button>
-          {!cashOnly && <button className="btn btn-ghost btn-block cash-reconcile" onClick={() => setConfirmReconcile(true)}><WalletCards size={18}/>Cuadrar caja</button>}
         </div>
       : <p className="alert alert-info"><ShieldCheck size={17}/>Solo Administrador y Superadmin ajustan la caja. Los cobros entran automáticamente.</p>}
+
+    {canCash(app.role, business) && !cashOnly && <section className="cash-close-card">
+      <div className="cash-close-copy"><span className="cash-close-icon"><WalletCards size={20}/></span><div><h2>Cierre de caja</h2><p>Cuenta el efectivo y verifica las transferencias para comparar con el saldo registrado.</p></div></div>
+      <button className="btn btn-primary btn-block" onClick={() => {
+        setCountedCash((balance('efectivo') / 100).toFixed(2))
+        setCountedTransfer((balance('transferencia') / 100).toFixed(2))
+        setConfirmReconcile(true)
+      }}>Cuadrar caja<ArrowRight size={18}/></button>
+    </section>}
 
     <DailyReport app={app} business={business}/>
 
@@ -1209,15 +1219,30 @@ function Cash({ app, back, business = 'palatto', onOrder }: { app: Restaurant; b
       </form>
     </Modal>}
 
-    {confirmReconcile && <Modal title="¿Cuadrar caja?" close={() => setConfirmReconcile(false)}>
-      <div className="form-stack">
-        <p>Confirma que revisaste los saldos físicos. Se guardará el cuadre con fecha, responsable y los saldos registrados en el sistema.</p>
-        <div className="report-method"><div><span>Efectivo</span><b>{money(balance('efectivo'))}</b></div><div><span>Transferencias</span><b>{money(balance('transferencia'))}</b></div></div>
+    {confirmReconcile && <Modal title="Cuadrar caja" close={() => setConfirmReconcile(false)}>
+      <div className="cash-reconcile-dialog">
+        <div className="cash-reconcile-intro"><span className="cash-reconcile-badge"><WalletCards size={21}/></span><div><strong>Revisa los saldos</strong><p>Ingresa lo que contaste. Te mostraremos cualquier diferencia antes de guardar.</p></div></div>
+        <div className="cash-reconcile-table">
+          <div className="cash-reconcile-head"><span>Medio</span><span>Registrado</span><span>Contado</span></div>
+          <label className="cash-reconcile-row"><span><Banknote size={17}/>Efectivo</span><b>{money(balance('efectivo'))}</b><input aria-label="Efectivo contado" type="number" inputMode="decimal" min="0" step="0.01" value={countedCash} onChange={event => setCountedCash(event.target.value)} /></label>
+          <label className="cash-reconcile-row"><span><CreditCard size={17}/>Transferencias</span><b>{money(balance('transferencia'))}</b><input aria-label="Transferencias contadas" type="number" inputMode="decimal" min="0" step="0.01" value={countedTransfer} onChange={event => setCountedTransfer(event.target.value)} /></label>
+        </div>
+        {(() => {
+          const cashDiff = cents(countedCash || '0') - balance('efectivo')
+          const transferDiff = cents(countedTransfer || '0') - balance('transferencia')
+          const differs = cashDiff !== 0 || transferDiff !== 0
+          return <div className={`cash-reconcile-result ${differs ? 'has-difference' : 'is-balanced'}`}>
+            <span>{differs ? 'Diferencia por revisar' : 'Caja cuadrada'}</span>
+            <strong>{differs ? money(cashDiff + transferDiff) : 'Sin diferencias'}</strong>
+            {differs && <small>Efectivo {cashDiff > 0 ? '+' : ''}{money(cashDiff)} · Transferencias {transferDiff > 0 ? '+' : ''}{money(transferDiff)}</small>}
+          </div>
+        })()}
+        <p className="cash-reconcile-note">Se guardará el saldo contado, el saldo registrado y la persona responsable. La caja del sistema no se modifica.</p>
         {app.error && <p className="alert alert-error" role="alert">{app.error}</p>}
-        <button className="btn btn-primary btn-lg btn-block" disabled={app.busy} onClick={async () => {
-          const done = await app.reconcileCash(business)
+        <div className="cash-reconcile-actions"><button className="btn btn-ghost" disabled={app.busy} onClick={() => setConfirmReconcile(false)}>Cancelar</button><button className="btn btn-primary" disabled={app.busy || countedCash === '' || countedTransfer === ''} onClick={async () => {
+          const done = await app.reconcileCash(business, cents(countedCash), cents(countedTransfer))
           if (done) setConfirmReconcile(false)
-        }}>{app.busy ? 'Guardando cuadre…' : 'Confirmar cuadre'}<Check size={18}/></button>
+        }}>{app.busy ? 'Guardando…' : 'Confirmar cuadre'}<Check size={18}/></button></div>
       </div>
     </Modal>}
 

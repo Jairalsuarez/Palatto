@@ -32,6 +32,8 @@ type Details = {
   reconciliationId?: string
   cashBalance?: number
   transferBalance?: number
+  countedCash?: number
+  countedTransfer?: number
 }
 
 const moneyLabel = (value?: number) => typeof value === 'number' && Number.isFinite(value)
@@ -74,7 +76,9 @@ function buildNotice(event: string, details: Details) {
     case 'cash_reconciled': {
       const cash = moneyLabel(details.cashBalance)
       const transfer = moneyLabel(details.transferBalance)
-      return { title: 'Caja cuadrada', body: `Caja cuadrada${details.actorName ? ` por ${details.actorName}` : ''} · Efectivo ${cash || '$0.00'} · Transferencia ${transfer || '$0.00'}.`, push: true }
+      const differences = (Number(details.countedCash || 0) - Number(details.cashBalance || 0)) + (Number(details.countedTransfer || 0) - Number(details.transferBalance || 0))
+      const suffix = differences ? ` · Diferencia ${differences > 0 ? '+' : ''}${moneyLabel(differences)}` : ' · Sin diferencias'
+      return { title: 'Caja cuadrada', body: `Caja cuadrada${details.actorName ? ` por ${details.actorName}` : ''} · Efectivo ${cash || '$0.00'} · Transferencia ${transfer || '$0.00'}${suffix}.`, push: true }
     }
     case 'user_saved':
       return { title: 'Equipo actualizado', body: `${details.name || 'Una cuenta'} fue ${details.reason || 'actualizada'}.`, push: false }
@@ -143,10 +147,12 @@ Deno.serve(async request => {
       if (event === 'cash_reconciled') {
         if (!['superadmin', 'administrador'].includes(String(profile.role))) return reply({ error: 'Solo administración puede cuadrar la caja' }, 403)
         if (typeof details.reconciliationId !== 'string') return reply({ error: 'Falta el registro de cuadre' }, 400)
-        const { data: reconciliation } = await admin.from('cash_reconciliations').select('id,cash_balance,transfer_balance').eq('id', details.reconciliationId).eq('reconciled_by', user.id).maybeSingle()
+        const { data: reconciliation } = await admin.from('cash_reconciliations').select('id,cash_balance,transfer_balance,counted_cash,counted_transfer').eq('id', details.reconciliationId).eq('reconciled_by', user.id).maybeSingle()
         if (!reconciliation) return reply({ error: 'El cuadre no existe o no corresponde a tu cuenta' }, 403)
         details.cashBalance = Number(reconciliation.cash_balance)
         details.transferBalance = Number(reconciliation.transfer_balance)
+        details.countedCash = Number(reconciliation.counted_cash)
+        details.countedTransfer = Number(reconciliation.counted_transfer)
         details.actorName = String(profile.name || '')
       }
       if (details.orderId && ['order_created', 'order_updated', 'order_paid', 'split_payment'].includes(event)) {

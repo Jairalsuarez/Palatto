@@ -40,6 +40,8 @@ export interface PushDetails {
   reconciliationId?: string
   cashBalance?: number
   transferBalance?: number
+  countedCash?: number
+  countedTransfer?: number
 }
 
 export async function notifyActivity(
