@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { supabase } from './supabase';
-import { canCash, canEdit, canMenu, canWrite, total, validatePayment } from './domain';
+import { canCash, canEdit, canMenu, canTakeOrders, total, validatePayment } from './domain';
 import type { Business, Data, Item, Method, MovementKind, Order, Product, Profile, Role } from './domain';
 import { notifyActivity } from './push';
 import type { PushActivity, PushDetails } from './push';
@@ -157,8 +157,8 @@ export function useRestaurant() {
     }
     const role = profile?.role || 'visualizador';
     const id = () => crypto.randomUUID();
-    function writer() { if (!canWrite(role))
-        throw new Error('Este rol solo puede consultar.'); }
+    function orderWriter() { if (!canTakeOrders(role))
+        throw new Error('Este rol no puede gestionar pedidos.'); }
     function checkItems(items: Item[], previous: Item[] = []) {
         if (!items.length)
             throw new Error('Añade al menos un producto.');
@@ -217,8 +217,7 @@ export function useRestaurant() {
             let savedId = order?.id || '';
             let updatedOrder: Order | null = null;
             const ok = await run(async () => {
-                writer();
-                if (!['superadmin','administrador','mesera','mesero'].includes(role)) throw new Error('Este rol no puede registrar pedidos.');
+                orderWriter();
                 checkItems(items, order?.items);
                 if (!customer.trim())
                     throw new Error('Escribe la mesa o el nombre del cliente.');
@@ -265,8 +264,7 @@ export function useRestaurant() {
         },
 
         pay: (order: Order, method: Method, received: number, receipt: string | null, amount = total(order.items)) => run(async () => {
-            writer();
-            if (!['superadmin','administrador','mesera','mesero'].includes(role)) throw new Error('Este rol no puede cobrar pedidos.');
+            orderWriter();
             if (order.paid) throw new Error('Este pedido ya está completado.');
             if (data.order_payments.some(payment => payment.order_id === order.id)) throw new Error('Este pedido tiene pagos divididos. Cobra el resto desde Dividir cuenta.');
             if (!Number.isSafeInteger(amount) || amount <= 0) throw new Error('El total debe ser un importe mayor a cero.');
@@ -279,8 +277,7 @@ export function useRestaurant() {
         splitPay: (order: Order, label: string, items: Item[], method: Method, received: number, receipt: string | null) => {
             const amount = items.reduce((sum, item) => sum + item.price * item.quantity + (item.takeaway_fee || 0) * (item.takeaway_quantity || 0), 0);
             return run(async () => {
-                writer();
-                if (!['superadmin','administrador','mesera','mesero'].includes(role)) throw new Error('Este rol no puede registrar pagos.');
+                orderWriter();
                 if (order.paid) throw new Error('Este pedido ya está completado.');
                 if (!items.length) throw new Error('Elige al menos un producto para esta persona.');
                 validatePayment(amount, method, received, receipt);
@@ -294,8 +291,7 @@ export function useRestaurant() {
             }));
         },
         deleteOrder: (order: Order, reason: string) => run(async () => {
-            writer();
-            if (!['superadmin','administrador','mesera','mesero'].includes(role)) throw new Error('Este rol no puede eliminar pedidos.');
+            orderWriter();
             if (order.paid) throw new Error('Un pedido cobrado no se elimina. Corrígelo o registra el movimiento en caja.');
             if (data.order_payments.some(payment => payment.order_id === order.id)) throw new Error('El pedido tiene pagos divididos y no puede eliminarse.');
             if (reason.trim().length < 3) throw new Error('Escribe el motivo de la eliminación.');

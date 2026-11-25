@@ -8,7 +8,7 @@ import {
 import { Modal } from './Modal'
 import { useRestaurant } from './lib/useRestaurant'
 import type { Restaurant } from './lib/useRestaurant'
-import { itemIsDrink, itemTotal, canCash, canEdit, canKitchen, canMenu, canTakeOrders, canWrite, cents, displayNumber, displayNumericText, labels, money, orderService, orderSplit, orderTotal, recommendedPrepMinutes, roles, setSensitiveValuesHidden, total } from './lib/domain'
+import { itemIsDrink, itemTotal, canCash, canEdit, canKitchen, canMenu, canTakeOrders, cents, displayNumber, displayNumericText, labels, money, orderService, orderSplit, orderTotal, recommendedPrepMinutes, roles, setSensitiveValuesHidden, total } from './lib/domain'
 import type { Business, Item, Method, Movement, MovementKind, Order, OrderPayment, Product, Profile, Role } from './lib/domain'
 import { analyze, dayKey, paymentTimes } from './lib/analytics'
 import { OrderList } from './OrderList'
@@ -435,7 +435,7 @@ function Home({ app, detail, setDetail, payRequest, payHandled, onNew, onDrinks,
   return <>
     <div className="page-head">
       <div><p className="eyebrow">{today()}</p><h1>Pedidos</h1></div>
-      {canWrite(app.role) && <button className="home-new" onClick={onNew} aria-label="Nuevo pedido"><Plus size={20}/></button>}
+      {canTakeOrders(app.role) && <button className="home-new" onClick={onNew} aria-label="Nuevo pedido"><Plus size={20}/></button>}
     </div>
 
     <SalesHero app={app} onDrinks={onDrinks} onSummary={onSummary} onCash={onCash}/>
@@ -452,10 +452,10 @@ function Home({ app, detail, setDetail, payRequest, payHandled, onNew, onDrinks,
 
     {!orders.length
       ? <Empty title={search ? 'No encontramos ese pedido' : filter === 'completados' ? 'Aún no hay pedidos cobrados' : 'No hay pedidos en proceso'}
-          action={!search && filter !== 'completados' && canWrite(app.role) ? <button className="btn btn-primary" onClick={onNew}><Plus size={18}/>Tomar un pedido</button> : undefined}>
+          action={!search && filter !== 'completados' && canTakeOrders(app.role) ? <button className="btn btn-primary" onClick={onNew}><Plus size={18}/>Tomar un pedido</button> : undefined}>
           {search ? 'Prueba con otro nombre o número.' : 'Cuando alguien pida algo, aparecerá aquí.'}
         </Empty>
-      : <OrderList orders={orders} canPay={canWrite(app.role)} payments={app.data.order_payments} open={order => { app.setError(''); setDetail(order.id) }} pay={order => { app.setError(''); setPayment({ order, split: false }) }}/>}
+      : <OrderList orders={orders} canPay={canTakeOrders(app.role)} payments={app.data.order_payments} open={order => { app.setError(''); setDetail(order.id) }} pay={order => { app.setError(''); setPayment({ order, split: false }) }}/>}
 
     {detailOrder && <OrderDetail app={app} order={detailOrder} close={() => setDetail(null)}
       pay={() => { setDetail(null); setPayment({ order: detailOrder, split: false }) }}
@@ -524,8 +524,7 @@ function KitchenAlert({ app, order, soundEnabled, onSound, onDismiss, onCustomiz
   const hours = Math.floor(chosenMinutes / 60)
   const minutes = chosenMinutes % 60
   const totalMinutes = hours * 60 + minutes
-  const quickTimes = Array.from({ length: Math.max(1, Math.floor((240 - recommendation) / 5) + 1) }, (_, index) => recommendation + index * 5)
-  if (quickTimes.at(-1)! < 240) quickTimes.push(240)
+  const quickTimes = [15, 20, 25, 30]
   function updateHours(value: number) { setChosenMinutes(Math.min(240, value * 60 + Math.min(minutes, value === 4 ? 0 : 59))) }
   function updateMinutes(value: number) { setChosenMinutes(Math.min(240, hours * 60 + value)) }
   function returnToRecommendation() {
@@ -551,11 +550,11 @@ function KitchenAlert({ app, order, soundEnabled, onSound, onDismiss, onCustomiz
         <section className="kitchen-quick-time-section" aria-label="Aceptar con tiempo estimado">
           <p>Toca un tiempo para aceptar el pedido</p>
           <div className="kitchen-quick-times" role="group" aria-label="Aceptar pedido en intervalos de cinco minutos">
-            {quickTimes.map((minutes, index) => <button type="button" key={minutes} className={`kitchen-quick-time ${index === 0 ? 'is-recommended' : ''}`} disabled={app.busy} aria-label={`Aceptar pedido en ${minutes} minutos${index === 0 ? ', recomendado' : ''}`} onClick={() => void accept(minutes)}>
-              <strong>{minutes}</strong><span>min</span>{index === 0 && <small>recomendado</small>}
+            {quickTimes.map(minutes => <button type="button" key={minutes} className={`kitchen-quick-time ${minutes === recommendation ? 'is-recommended' : ''}`} disabled={app.busy} aria-label={`Aceptar pedido en ${minutes} minutos${minutes === recommendation ? ', recomendado' : ''}`} onClick={() => void accept(minutes)}>
+              <strong>{minutes}</strong><span>min</span>{minutes === recommendation && <small>recomendado</small>}
             </button>)}
           </div>
-          <small className="kitchen-quick-time-hint">Desliza para ver más tiempos, de 5 en 5</small>
+          <small className="kitchen-quick-time-hint">Opciones rápidas: 15, 20, 25 y 30 minutos</small>
         </section>
         <div className="kitchen-alert-buttons"><button className="btn btn-alert-outline btn-block kitchen-alert-manual" disabled={app.busy} onClick={() => { setChosenMinutes(recommendation); setCustomizing(true); onCustomizing(true) }}>Personalizar tiempo</button><button className="btn btn-alert-reject btn-block" disabled={app.busy} onClick={() => void reject()}>{app.busy ? 'Procesando…' : 'Rechazar pedido'}</button></div>
       </div> : <div className="kitchen-alert-body kitchen-time-editor">
@@ -751,14 +750,14 @@ function OrderDetail({ app, order, close, pay, split, edit, showReceipt }: { app
           {order.receipt && <button className="btn btn-ghost btn-block btn-sm" onClick={() => showReceipt(order.receipt!)}><CreditCard size={16}/>Ver comprobante</button>}
 
           <div className="detail-actions">
-            {!order.paid && !order.prep_requested && !order.prep_rejected && canWrite(app.role) && (payments.length
+            {!order.paid && !order.prep_requested && !order.prep_rejected && canTakeOrders(app.role) && (payments.length
               ? <button className="btn btn-money btn-lg btn-block" disabled={app.busy} onClick={split}><Users size={19}/>Cobrar el resto · {money(remaining)}</button>
               : <>
                   <button className="btn btn-money btn-lg btn-block" disabled={app.busy} onClick={pay}><Banknote size={19}/>Cobrar {money(owed)}</button>
                   <button className="btn btn-ghost btn-block" onClick={split}><Users size={17}/>Dividir cuenta</button>
                 </>)}
             {!order.prep_requested && !order.prep_rejected && !payments.length && canEdit(app.role, order) && <button className="btn btn-ghost btn-block" onClick={edit}><Pencil size={17}/>Editar pedido</button>}
-            {!order.prep_requested && !order.paid && !payments.length && canWrite(app.role) && <button className="btn btn-danger-ghost btn-block" onClick={() => setConfirming(true)}><Trash2 size={17}/>Eliminar pedido</button>}
+            {!order.prep_requested && !order.paid && !payments.length && canTakeOrders(app.role) && <button className="btn btn-danger-ghost btn-block" onClick={() => setConfirming(true)}><Trash2 size={17}/>Eliminar pedido</button>}
           </div>
 
           <details className="history">
@@ -1154,7 +1153,7 @@ function OrderEditor({ app, order, back, done, pay, waitForKitchen }: { app: Res
         {app.error && <p className="alert alert-error" role="alert">{app.error}</p>}
         <button type="button" className="btn btn-ghost btn-block queue-time-customize" onClick={() => setCustomizeQueueTime(true)}>Personalizar tiempo</button>
         <button type="button" className="btn btn-primary btn-lg btn-block" disabled={app.busy} onClick={() => void save(queueCharge, queueMinutes)}>{app.busy ? 'Enviando…' : 'Poner en cola'}<ArrowRight size={18}/></button>
-        <button type="button" className="btn btn-alert-outline btn-block" disabled={app.busy} onClick={() => void save(queueCharge, undefined, true)}>Preguntar al cocinero</button>
+        {app.role !== 'cocinero' && <button type="button" className="btn btn-alert-outline btn-block" disabled={app.busy} onClick={() => void save(queueCharge, undefined, true)}>Preguntar al cocinero</button>}
       </div> : <div className="queue-time-prompt queue-time-wheel-view">
         <p>Desliza los números para elegir cuánto tardará.</p>
         <div className="time-wheel-group"><TimeWheel label="Horas" value={Math.floor(queueMinutes / 60)} max={4} onChange={value => setQueueMinutes(Math.min(240, value * 60 + Math.min(queueMinutes % 60, value === 4 ? 0 : 59)))}/><span className="time-wheel-unit">h</span><TimeWheel label="Minutos" value={queueMinutes % 60} max={Math.floor(queueMinutes / 60) === 4 ? 0 : 59} onChange={value => setQueueMinutes(Math.min(240, Math.floor(queueMinutes / 60) * 60 + value))}/><span className="time-wheel-unit">min</span></div>
