@@ -1981,11 +1981,25 @@ dialog.native-dialog.dialog-large {
   font-weight: 700;
 }
 .hero-method-copy strong {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
   font-family: var(--font-display);
   font-size: 1rem;
   letter-spacing: -.02em;
   font-variant-numeric: tabular-nums;
   line-height: 1.2;
+}
+.hero-method-emoji {
+  font-family: var(--font-sans);
+  font-size: .92em;
+  line-height: 1;
+}
+.pichincha-mark {
+  width: 17px;
+  height: 17px;
+  flex: 0 0 auto;
+  border-radius: 4px;
 }
 
 .menu-search { margin-bottom: 12px; }

@@ -409,6 +409,13 @@ function DrinksSalesPage({ app, back }: { app: Restaurant; back: () => void }) {
   </>
 }
 
+function PichinchaMark() {
+  return <svg className="pichincha-mark" viewBox="0 0 43.69 44" role="img" aria-label="Banco Pichincha">
+    <path fill="#fd0" d="M43.69.27V44H14.63A14.63 14.63 0 0 1 0 29.33V.27h43.69Z"/>
+    <path fill="#1b2d54" d="M36.42 22.08V7.54H21.84v6.57h8v7.97h6.58Z"/>
+  </svg>
+}
+
 function SalesHero({ app, onDrinks, onSummary, onCash }: { app: Restaurant; onDrinks: () => void; onSummary: () => void; onCash: (business: Business) => void }) {
   const mainCashMovements = app.data.movements.filter(movement => movement.business === 'palatto')
   const balance = mainCashMovements.reduce((sum, movement) => sum + movement.amount, 0)
@@ -426,10 +433,10 @@ function SalesHero({ app, onDrinks, onSummary, onCash }: { app: Restaurant; onDr
     </button>
     <div className="hero-day hero-day-methods">
       <button className="hero-method" onClick={() => onCash('palatto')} aria-label="Ver saldo total en efectivo">
-        <span className="hero-method-copy"><small>Efectivo</small><strong>{money(cash)}</strong></span>
+        <span className="hero-method-copy"><small>Efectivo</small><strong><span className="hero-method-emoji" aria-hidden="true">💵</span>{money(cash)}</strong></span>
       </button>
       <button className="hero-method" onClick={() => onCash('palatto')} aria-label="Ver saldo total por transferencia">
-        <span className="hero-method-copy"><small>Transferencia</small><strong>{money(transfer)}</strong></span>
+        <span className="hero-method-copy"><small>Transferencia</small><strong><PichinchaMark/>{money(transfer)}</strong></span>
       </button>
     </div>
   </section>
