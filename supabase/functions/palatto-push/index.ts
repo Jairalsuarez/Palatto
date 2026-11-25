@@ -29,6 +29,9 @@ type Details = {
   name?: string
   paid?: boolean
   received?: boolean
+  reconciliationId?: string
+  cashBalance?: number
+  transferBalance?: number
 }
 
 const moneyLabel = (value?: number) => typeof value === 'number' && Number.isFinite(value)
@@ -68,6 +71,11 @@ function buildNotice(event: string, details: Details) {
     }
     case 'cash_transfer':
       return { title: 'Transferencia de caja', body: `${amount || 'Transferencia'}${details.reason ? ` · ${details.reason}` : ''}.`, push: false }
+    case 'cash_reconciled': {
+      const cash = moneyLabel(details.cashBalance)
+      const transfer = moneyLabel(details.transferBalance)
+      return { title: 'Caja cuadrada', body: `Caja cuadrada${details.actorName ? ` por ${details.actorName}` : ''} · Efectivo ${cash || '$0.00'} · Transferencia ${transfer || '$0.00'}.`, push: true }
+    }
     case 'user_saved':
       return { title: 'Equipo actualizado', body: `${details.name || 'Una cuenta'} fue ${details.reason || 'actualizada'}.`, push: false }
     case 'password_changed':
@@ -132,6 +140,15 @@ Deno.serve(async request => {
       if (profile.role === 'visualizador') return reply({ error: 'No tienes permiso para crear pedidos' }, 403)
       const event = String(body.action === 'notify_new_order' ? 'order_created' : body.event)
       const details: Details = body.details && typeof body.details === 'object' ? body.details : {}
+      if (event === 'cash_reconciled') {
+        if (!['superadmin', 'administrador'].includes(String(profile.role))) return reply({ error: 'Solo administración puede cuadrar la caja' }, 403)
+        if (typeof details.reconciliationId !== 'string') return reply({ error: 'Falta el registro de cuadre' }, 400)
+        const { data: reconciliation } = await admin.from('cash_reconciliations').select('id,cash_balance,transfer_balance').eq('id', details.reconciliationId).eq('reconciled_by', user.id).maybeSingle()
+        if (!reconciliation) return reply({ error: 'El cuadre no existe o no corresponde a tu cuenta' }, 403)
+        details.cashBalance = Number(reconciliation.cash_balance)
+        details.transferBalance = Number(reconciliation.transfer_balance)
+        details.actorName = String(profile.name || '')
+      }
       if (details.orderId && ['order_created', 'order_updated', 'order_paid', 'split_payment'].includes(event)) {
         const { data: order } = await admin.from('orders').select('number,customer,takeaway,items').eq('id', details.orderId).maybeSingle()
         if (order) {
@@ -149,16 +166,18 @@ Deno.serve(async request => {
       if (!notice) return reply({ error: 'Tipo de aviso inválido' }, 400)
 
       // Toda la actividad queda en el centro de notificaciones de la app.
-      const { error: insertError } = await admin.from('notifications').insert({
-        event,
-        title: notice.title,
-        body: notice.body,
-        order_id: typeof details.orderId === 'string' ? details.orderId : null,
-        actor: user.id,
-        actor_name: profile.name || details.actorName || null,
-      })
+      const { error: insertError } = event === 'order_created'
+        ? { error: null }
+        : await admin.from('notifications').insert({
+          event,
+          title: notice.title,
+          body: notice.body,
+          order_id: typeof details.orderId === 'string' ? details.orderId : null,
+          actor: user.id,
+          actor_name: profile.name || details.actorName || null,
+        })
       if (insertError) console.error('No se pudo guardar la notificación interna', insertError)
-      const notified = !insertError
+      const notified = event !== 'order_created' && !insertError
 
       // Solo los pedidos nuevos y los movimientos de caja se envían como push.
       if (!notice.push) return reply({ ok: true, notified, sent: 0, reason: 'internal_only' })
@@ -169,7 +188,8 @@ Deno.serve(async request => {
       if (!publicKey || !privateKey) return reply({ ok: true, notified, sent: 0, reason: 'push_not_configured' })
       // Every active account should receive activity notifications, including
       // the account that performed the action. A user may have several devices.
-      const { data: recipients, error: recipientsError } = await admin.from('profiles').select('id').eq('active', true)
+      const kitchenOnly = event === 'order_created'
+      const { data: recipients, error: recipientsError } = await admin.from('profiles').select('id').eq('active', true).match(kitchenOnly ? { role: 'cocinero' } : {})
       if (recipientsError) throw recipientsError
       if (!recipients?.length) return reply({ ok: true, notified, sent: 0, attempted: 0, reason: 'no_recipients' })
       const { data: subscriptions, error: subscriptionsError } = await admin.from('push_subscriptions').select('id,endpoint,p256dh,auth').in('user_id', recipients.map(person => person.id))

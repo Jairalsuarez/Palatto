@@ -10,6 +10,7 @@ export type PushActivity =
   | 'product_photo_saved'
   | 'cash_movement'
   | 'cash_transfer'
+  | 'cash_reconciled'
   | 'user_saved'
   | 'password_changed'
   | 'password_reset'
@@ -36,6 +37,9 @@ export interface PushDetails {
   name?: string
   paid?: boolean
   received?: boolean
+  reconciliationId?: string
+  cashBalance?: number
+  transferBalance?: number
 }
 
 export async function notifyActivity(

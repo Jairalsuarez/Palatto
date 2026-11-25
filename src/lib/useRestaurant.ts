@@ -193,11 +193,25 @@ export function useRestaurant() {
             if (result?.error) throw new Error(result.error);
             return result;
         },
+        acceptKitchenOrder: (order: Order, minutes: number) => run(async () => {
+            if (role !== 'cocinero') throw new Error('Solo cocina puede aceptar pedidos.');
+            await rpc('kitchen_accept_order', { p_id: order.id, p_version: order.version, p_prep_minutes: minutes });
+        }, 'Pedido aceptado. El temporizador está en marcha.'),
+        advanceKitchenOrder: (order: Order) => run(async () => {
+            if (role !== 'cocinero') throw new Error('Solo cocina puede finalizar pedidos.');
+            await rpc('kitchen_advance_order', { p_id: order.id, p_version: order.version });
+        }, 'Pedido marcado como listo.'),
+        kitchenEstimate: async (order: Order): Promise<number> => {
+            if (role !== 'cocinero') throw new Error('Solo cocina puede consultar la estimación.');
+            const result = await rpc('kitchen_estimate_minutes', { p_id: order.id });
+            return Number(result);
+        },
         saveOrder: async (customer: string, notes: string, items: Item[], order?: Order, takeaway = false) => {
             let savedId = order?.id || '';
             let updatedOrder: Order | null = null;
             const ok = await run(async () => {
                 writer();
+                if (!['superadmin','administrador','mesera','mesero'].includes(role)) throw new Error('Este rol no puede registrar pedidos.');
                 checkItems(items, order?.items);
                 if (!customer.trim())
                     throw new Error('Escribe la mesa o el nombre del cliente.');
@@ -245,6 +259,7 @@ export function useRestaurant() {
 
         pay: (order: Order, method: Method, received: number, receipt: string | null, amount = total(order.items)) => run(async () => {
             writer();
+            if (!['superadmin','administrador','mesera','mesero'].includes(role)) throw new Error('Este rol no puede cobrar pedidos.');
             if (order.paid) throw new Error('Este pedido ya está completado.');
             if (data.order_payments.some(payment => payment.order_id === order.id)) throw new Error('Este pedido tiene pagos divididos. Cobra el resto desde Dividir cuenta.');
             if (!Number.isSafeInteger(amount) || amount <= 0) throw new Error('El total debe ser un importe mayor a cero.');
@@ -258,6 +273,7 @@ export function useRestaurant() {
             const amount = items.reduce((sum, item) => sum + item.price * item.quantity + (item.takeaway_fee || 0) * (item.takeaway_quantity || 0), 0);
             return run(async () => {
                 writer();
+                if (!['superadmin','administrador','mesera','mesero'].includes(role)) throw new Error('Este rol no puede registrar pagos.');
                 if (order.paid) throw new Error('Este pedido ya está completado.');
                 if (!items.length) throw new Error('Elige al menos un producto para esta persona.');
                 validatePayment(amount, method, received, receipt);
@@ -272,6 +288,7 @@ export function useRestaurant() {
         },
         deleteOrder: (order: Order, reason: string) => run(async () => {
             writer();
+            if (!['superadmin','administrador','mesera','mesero'].includes(role)) throw new Error('Este rol no puede eliminar pedidos.');
             if (order.paid) throw new Error('Un pedido cobrado no se elimina. Corrígelo o registra el movimiento en caja.');
             if (data.order_payments.some(payment => payment.order_id === order.id)) throw new Error('El pedido tiene pagos divididos y no puede eliminarse.');
             if (reason.trim().length < 3) throw new Error('Escribe el motivo de la eliminación.');
@@ -291,6 +308,7 @@ export function useRestaurant() {
                 p_is_drink: Boolean(product.is_drink),
                 p_image_path: product.image_path || null,
                 p_takeaway_fee: product.takeaway_fee || 0,
+                p_prep_minutes: product.prep_minutes || 10,
             });
         }, 'Menú actualizado', () => ({ event: 'product_saved', details: { actorName: profile?.name, name: product.name } })),
         deleteProduct: (product: Product) => run(async () => {
@@ -299,6 +317,7 @@ export function useRestaurant() {
             await rpc('delete_product', { p_id: product.id });
         }, 'Producto eliminado del menú', () => ({ event: 'product_saved', details: { actorName: profile?.name, name: product.name, reason: 'eliminado' } })),
         cash: (business: Business, amount: number, method: Method, reason: string, kind: MovementKind = 'ingreso', receipt: string | null = null) => run(async () => {
+            if (role === 'cocinero') throw new Error('El rol de cocina no puede gestionar caja.');
             if (!canCash(role, business)) throw new Error('No puedes ajustar esta caja.');
             if (!Number.isSafeInteger(amount) || amount === 0 || reason.trim().length < 3) throw new Error('Indica un importe válido y el motivo.');
             if (kind === 'ingreso' && amount < 0) throw new Error('El ingreso debe ser positivo.');
@@ -308,6 +327,24 @@ export function useRestaurant() {
             event: 'cash_movement',
             details: { actorName: profile?.name, amount, method, kind, reason: reason.trim() },
         })),
+        reconcileCash: (business: Business) => {
+            let reconciliation: { id: string; cash_balance: number; transfer_balance: number } | null = null;
+            return run(async () => {
+                if (!canCash(role, business) || business !== 'palatto') throw new Error('No puedes cuadrar esta caja.');
+                const { data: result, error } = await supabase!.rpc('reconcile_cash', { p_id: crypto.randomUUID() });
+                if (error) throw error;
+                if (!result || typeof result.id !== 'string') throw new Error('No se recibió el registro de cuadre. Actualiza la pantalla.');
+                reconciliation = result as { id: string; cash_balance: number; transfer_balance: number };
+            }, 'Caja cuadrada', () => ({
+                event: 'cash_reconciled',
+                details: {
+                    actorName: profile?.name,
+                    reconciliationId: reconciliation?.id,
+                    cashBalance: reconciliation?.cash_balance,
+                    transferBalance: reconciliation?.transfer_balance,
+                },
+            }));
+        },
         productPhotoUrl: (path: string) => supabase!.storage.from('menu-images').getPublicUrl(path).data.publicUrl,
         async uploadProductPhoto(file: File): Promise<string> {
             if (!canMenu(role)) throw new Error('Solo administración puede subir fotos.');

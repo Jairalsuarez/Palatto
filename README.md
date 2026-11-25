@@ -45,9 +45,9 @@ El menú se administra desde la pestaña Menú. El administrador debe cargar los
 - Cinco roles disponibles: Superadmin, Administrador, Cocinero, Mesera y Visualizador. `carreta` queda como valor interno histórico para clasificar aguas y colas en reportes, no como negocio ni caja separada.
 - Un solo menú y una sola caja para Palatto. Cada producto puede marcarse como agua o cola; ese check alimenta el resumen del día sin separar la caja.
 - Administrador gestiona el menú y la caja. Superadmin tiene acceso total.
-- Cocinero toma y cobra pedidos y consulta la caja. Mesera y Mesero toman, modifican y cobran pedidos. Visualizador solo consulta.
+- Cocinero trabaja solo en Cocina: acepta pedidos, fija el tiempo estimado y los marca listos. Mesera y Mesero toman, modifican y cobran pedidos; administración también conserva la gestión operativa. Visualizador solo consulta.
 - No hay turnos que abrir ni cerrar. Los productos activos siempre están disponibles y la caja siempre opera.
-- Pedidos numerados `#1`, `#2`… y reiniciados cada día en la zona de Ecuador. La lista muestra los pedidos en proceso por orden de llegada y los completados del más reciente al más antiguo.
+- Pedidos numerados `#1`, `#2`… y reiniciados cada día en la zona de Ecuador. La lista muestra pedidos en preparación y listos para entregar; la vista de Cocina los organiza por llegada y mantiene sus temporizadores.
 - Un pedido pendiente se cobra desde su tarjeta o directamente al crearlo con «Cobrar ahora». Confirmar el pago es lo que registra la venta del día.
 - Los pedidos sin cobrar pueden eliminarse con un motivo obligatorio. La función `delete_order` rechaza pedidos cobrados, con movimientos o con pagos divididos, valida la versión y guarda número, cliente, líneas, total, motivo y usuario en `deleted_orders`, visible solo para Superadmin y Administrador.
 - Eliminar un producto del menú es un borrado lógico: deja de ofrecerse, pero los pedidos históricos conservan nombre, precio y tarifa.
@@ -115,7 +115,7 @@ Superadmin crea cada cuenta con una contraseña temporal generada desde Equipo. 
 
 La aplicación incluye un manifiesto PWA y un service worker para instalar Palatto desde el navegador. En Android/Chrome usa **Instalar aplicación**; en iPhone/iPad abre Compartir → **Añadir a pantalla de inicio**. La instalación requiere el dominio de producción por HTTPS.
 
-Las notificaciones push avisan a todos los usuarios activos suscritos, incluida la cuenta que realizó el movimiento, cuando se crean o editan pedidos, se registran cobros, cambios de caja, menú, cuentas del equipo o insumos. No se notifican cambios de navegación ni texto sin guardar. Cada dispositivo debe activar las notificaciones. Las notificaciones se apilan en pantalla y las push usan una etiqueta única para que una no oculte a la siguiente. Para completar su envío en producción:
+Las notificaciones push de pedidos nuevos se dirigen solo a cuentas activas de Cocinero. Los demás cambios avisan a los usuarios activos suscritos, incluida la cuenta que realizó el movimiento, cuando se editan pedidos, se registran cobros, cambios de caja, menú, cuentas del equipo o insumos. Los pedidos nuevos usan la alerta dedicada de Cocina y no se agregan al centro general de notificaciones. No se notifican cambios de navegación ni texto sin guardar. Cada dispositivo debe activar las notificaciones. Para completar su envío en producción:
 
 1. Genera un par VAPID una sola vez con `npx web-push generate-vapid-keys` y conserva ambas claves. No vuelvas a generarlas después de que los usuarios se suscriban.
 2. En **Vercel → Project → Settings → Environment Variables**, crea `VITE_VAPID_PUBLIC_KEY` con la clave pública para Production, Preview y Development; luego vuelve a desplegar. Los cambios de variables solo llegan a despliegues nuevos.
@@ -177,3 +177,6 @@ La migración `20261118090000_supply_payment_edit_split_fixes.sql` está aplicad
 
 ### Conexión MCP de OpenCode
 El MCP remoto de Supabase está configurado con el `project_ref` de Palatto y autenticado por OAuth. El token se guarda en `~/.local/share/opencode/mcp-auth.json`, fuera del repositorio. La configuración solo contiene el `project_ref` y las funciones habilitadas.
+
+### Flujo de cocina y estimación de preparación
+La migración `20261121100000_kitchen_order_flow.sql` agrega tiempos de preparación configurables por producto, aceptación de cocina y hora estimada de entrega persistente. Los pedidos nuevos muestran una alerta sonora y superposición durante 30 segundos al cocinero; al vencer, permanecen en la cola. La recomendación usa el producto más lento del pedido como trabajo paralelo y programa pedidos aceptados detrás del final de la cola activa. Cocina acepta la sugerencia o confirma minutos manuales; el reloj circular usa la hora guardada en PostgreSQL. Hamburguesas inician con 10 minutos; los demás productos se ajustan en Menú. Cobrar permanece separado de marcar como listo.

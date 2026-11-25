@@ -37,8 +37,9 @@ export function OrderList({ orders, canPay, payments, open, pay }: { orders: Ord
             <ChevronRight size={18} className="order-chevron" aria-hidden="true"/>
           </span>
           <span className="order-meta">
-            {orderService(order)} · {time(order.created_at)} · {displayNumber(items)} artículo{items === 1 ? '' : 's'}
+            {orderService(order)} · {time(order.created_at)} · {displayNumber(items)} artículo{items === 1 ? '' : 's'}{!order.paid && order.status === 'completado' ? ' · Listo para entregar' : ''}
           </span>
+          {!order.paid && order.accepted_at && order.ready_at && <span className="order-meta">Listo {time(order.ready_at)} · estimado {order.prep_minutes} min</span>}
           <span className="order-items">{summary}</span>
           {order.notes && <span className="order-note-line">{order.notes}</span>}
           {!!split.length && <span className="order-split-line"><Users size={14} aria-hidden="true"/>{displayNumber(split.length)} {split.length === 1 ? 'pago' : 'pagos'} · falta {money(remaining)}</span>}

@@ -3,9 +3,9 @@ export type Business = 'palatto' | 'carreta'
 export type Method = 'efectivo' | 'transferencia'
 export type MovementKind = 'ingreso' | 'gasto' | 'retiro' | 'cobro' | 'correccion' | 'transferencia'
 export interface Profile { id: string; name: string; role: Role; active: boolean; email?: string; must_change_password?: boolean }
-export interface Product { takeaway_fee?: number; image_path?: string | null; id: string; name: string; price: number; business: Business; category: string; active: boolean; is_drink?: boolean }
+export interface Product { takeaway_fee?: number; prep_minutes?: number; image_path?: string | null; id: string; name: string; price: number; business: Business; category: string; active: boolean; is_drink?: boolean }
 export interface Item { base_price?: number; takeaway_fee?: number; takeaway_quantity?: number; is_drink?: boolean; product_id: string; name: string; price: number; quantity: number; business: Business }
-export interface Order { takeaway?: boolean; split_payment?: boolean; order_day?: string; paid_at?: string | null; adjustment?: number; adjustment_reason?: string | null; id: string; number: number; customer: string; notes: string; items: Item[]; status: 'en_proceso' | 'completado'; paid: boolean; method: Method | null; receipt: string | null; created_at: string; version: number }
+export interface Order { takeaway?: boolean; split_payment?: boolean; order_day?: string; paid_at?: string | null; accepted_at?: string | null; ready_at?: string | null; prep_minutes?: number | null; adjustment?: number; adjustment_reason?: string | null; id: string; number: number; customer: string; notes: string; items: Item[]; status: 'en_proceso' | 'completado'; paid: boolean; method: Method | null; receipt: string | null; created_at: string; version: number }
 export interface Shift { id: string; business: Business; opened_at: string; closed_at: string | null }
 export interface Movement { id: string; business: Business; amount: number; method: Method; reason: string; kind: MovementKind; order_id: string | null; receipt?: string | null; created_at: string; actor?: string }
 export interface OrderPayment { id: string; order_id: string; label: string; items: Item[]; amount: number; method: Method; receipt: string | null; created_by: string; created_at: string }
@@ -25,6 +25,8 @@ export const itemTotal = (item: Item) => item.price * item.quantity + (item.take
 export const itemIsDrink = (item: Item) => Boolean(item.is_drink) || item.business === 'carreta'
 export const total = (items: Item[], business?: Business) => items.filter(i => !business || i.business === business).reduce((sum, i) => sum + itemTotal(i), 0)
 export const canWrite = (role: Role) => role !== 'visualizador'
+export const canTakeOrders = (role: Role) => role === 'superadmin' || role === 'administrador' || role === 'mesera' || role === 'mesero'
+export const canKitchen = (role: Role) => role === 'cocinero'
 export const canMenu = (role: Role) => ['superadmin', 'administrador'].includes(role)
 export const canCash = (role: Role, _b: Business) => role === 'superadmin' || role === 'administrador'
 export const canEdit = (role: Role, order: Order) => canWrite(role) && !order.paid
@@ -49,5 +51,24 @@ export function orderService(order: Order): string {
   if (!takeaway) return 'Para servir'
   if (takeaway >= quantity) return 'Para llevar'
   return `${takeaway} de ${quantity} para llevar`
+}
+
+export function recommendedPrepMinutes(order: Order, orders: Order[], products: Product[]): number {
+  const durations = new Map(products.map(product => [product.id, product.prep_minutes || defaultPrepMinutes(product)]))
+  const duration = (candidate: Order) => Math.max(1, ...candidate.items.map(item => durations.get(item.product_id) || defaultPrepMinutes({ name: item.name, category: '', is_drink: itemIsDrink(item) })))
+  const active = orders.filter(candidate => !candidate.paid && candidate.accepted_at && candidate.ready_at && candidate.id !== order.id && new Date(candidate.ready_at).getTime() > Date.now())
+  const queueEnd = active.reduce((end, candidate) => Math.max(end, new Date(candidate.ready_at!).getTime()), Date.now())
+  const queueMinutes = Math.ceil(Math.max(0, queueEnd - Date.now()) / 60000)
+  return Math.min(240, Math.max(duration(order), queueMinutes + duration(order)))
+}
+
+export function defaultPrepMinutes(product: Pick<Product, 'name' | 'category' | 'is_drink'>): number {
+  if (product.is_drink) return 1
+  const text = `${product.name} ${product.category}`.toLowerCase()
+  if (/(hamburg|burger)/.test(text)) return 10
+  if (/(papa|loca|salchipapa|chuzo|alita)/.test(text)) return 10
+  if (/(hot\s?dog|perro)/.test(text)) return 8
+  if (/(pizza|pollo|parrilla)/.test(text)) return 15
+  return 10
 }
 

@@ -3,12 +3,12 @@ import type { FormEvent, ReactNode } from 'react'
 import {
   ArrowDownLeft, ArrowRight, ArrowUpRight, Banknote, BarChart3, Bell, BookOpen, Check, CheckCheck,
   ChevronLeft, ClipboardList, Coffee, CreditCard, Download, Flame, History, KeyRound, LogOut, Minus, PackageOpen,
-  Eye, EyeOff, Pencil, Plus, Power, Receipt, Search, ShieldCheck, ShoppingBag, Trash2, Users, X,
+  Eye, EyeOff, Pencil, Plus, Power, Receipt, Search, ShieldCheck, ShoppingBag, Trash2, Users, X, ChefHat, Timer, Volume2, VolumeX, WalletCards,
 } from 'lucide-react'
 import { Modal } from './Modal'
 import { useRestaurant } from './lib/useRestaurant'
 import type { Restaurant } from './lib/useRestaurant'
-import { itemIsDrink, itemTotal, canCash, canEdit, canMenu, canWrite, cents, displayNumber, displayNumericText, labels, money, orderService, orderSplit, orderTotal, roles, setSensitiveValuesHidden, total } from './lib/domain'
+import { itemIsDrink, itemTotal, canCash, canEdit, canKitchen, canMenu, canTakeOrders, canWrite, cents, displayNumber, displayNumericText, labels, money, orderService, orderSplit, orderTotal, recommendedPrepMinutes, roles, setSensitiveValuesHidden, total } from './lib/domain'
 import type { Business, Item, Method, Movement, MovementKind, Order, OrderPayment, Product, Profile, Role } from './lib/domain'
 import { analyze, dayKey, paymentTimes } from './lib/analytics'
 import { OrderList } from './OrderList'
@@ -68,6 +68,14 @@ export default function App() {
   const [detail, setDetail] = useState<string | null>(null)
   const [payRequest, setPayRequest] = useState<string | Order | null>(null)
   const [history, setHistory] = useState<Route[]>([])
+  const [clock, setClock] = useState(Date.now())
+  const [manualPrep, setManualPrep] = useState<{ order: Order; value: string; secondsLeft: number } | null>(null)
+  const [alertOrder, setAlertOrder] = useState<Order | null>(null)
+  const [alertResumeSeconds, setAlertResumeSeconds] = useState<number | null>(null)
+  const [soundEnabled, setSoundEnabled] = useState(true)
+  const audioRef = useRef<AudioContext | null>(null)
+  const audioUnlocked = useRef(false)
+  const alertedOrders = useRef(new Set<string>())
   const [hideValues, setHideValues] = useState(() => {
     const hidden = sessionStorage.getItem('palatto-hide-values') === '1'
     setSensitiveValuesHidden(hidden)
@@ -78,6 +86,66 @@ export default function App() {
   const historyInitialized = useRef(false)
 
   useEffect(() => { setSensitiveValuesHidden(hideValues) }, [hideValues])
+
+  useEffect(() => {
+    const timer = window.setInterval(() => setClock(Date.now()), 1000)
+    return () => window.clearInterval(timer)
+  }, [])
+
+  useEffect(() => {
+    if (!canKitchen(app.role)) { setAlertOrder(null); return }
+    const incoming = app.data.orders.filter(order => !order.paid && order.status === 'en_proceso' && !order.accepted_at)
+      .sort((a, b) => a.created_at.localeCompare(b.created_at))
+    const order = incoming.find(item => !alertedOrders.current.has(item.id) && Date.now()-new Date(item.created_at).getTime()<30000)
+    for (const item of incoming) if (Date.now()-new Date(item.created_at).getTime()>=30000) alertedOrders.current.add(item.id)
+    if (order) {
+      alertedOrders.current.add(order.id)
+      setAlertOrder(order)
+      setAlertResumeSeconds(null)
+    }
+    if (alertOrder && !incoming.some(order => order.id === alertOrder.id)) setAlertOrder(null)
+  }, [app.data.orders, app.role, alertOrder])
+
+  useEffect(() => {
+    if (!alertOrder || !soundEnabled || document.visibilityState !== 'visible') return
+    let context = audioRef.current
+    if (!context) { context = new AudioContext(); audioRef.current = context }
+    if (context.state === 'suspended') void context.resume()
+    const start = context.currentTime
+    const oscillator = context.createOscillator()
+    const gain = context.createGain()
+    oscillator.type = 'square'
+    oscillator.frequency.setValueAtTime(880, start)
+    oscillator.frequency.setValueAtTime(660, start + .18)
+    gain.gain.setValueAtTime(.0001, start)
+      gain.gain.exponentialRampToValueAtTime(.32, start + .03)
+      gain.gain.setValueAtTime(.32, start + .42)
+    gain.gain.exponentialRampToValueAtTime(.0001, start + .48)
+    oscillator.connect(gain); gain.connect(context.destination)
+    oscillator.start(start); oscillator.stop(start + .5)
+    const timer = window.setInterval(() => {
+      if (context?.state !== 'running' || document.visibilityState !== 'visible') return
+      const now = context.currentTime
+      const tone = context.createOscillator(); const volume = context.createGain()
+      tone.type = 'square'; tone.frequency.setValueAtTime(880, now); tone.frequency.setValueAtTime(660, now + .18)
+      volume.gain.setValueAtTime(.0001, now); volume.gain.exponentialRampToValueAtTime(.18, now + .03)
+      volume.gain.setValueAtTime(.32, now + .42); volume.gain.exponentialRampToValueAtTime(.0001, now + .48)
+      tone.connect(volume); volume.connect(context!.destination); tone.start(now); tone.stop(now + .5)
+    }, 1400)
+    return () => window.clearInterval(timer)
+  }, [alertOrder, soundEnabled])
+
+  useEffect(() => {
+    if (!canKitchen(app.role) || audioUnlocked.current) return
+    const unlock = () => {
+      if (!audioRef.current) audioRef.current = new AudioContext()
+      if (audioRef.current.state === 'suspended') void audioRef.current.resume()
+      audioUnlocked.current = true
+    }
+    window.addEventListener('pointerdown', unlock, { once: true })
+    window.addEventListener('keydown', unlock, { once: true })
+    return () => { window.removeEventListener('pointerdown', unlock); window.removeEventListener('keydown', unlock) }
+  }, [app.role])
 
   useEffect(() => {
     if (historyInitialized.current) return
@@ -132,8 +200,11 @@ export default function App() {
   if (!app.profile) return <Login app={app}/>
   if (app.profile.must_change_password) return <PasswordChange app={app} mandatory/>
 
-  const pending = app.data.orders.filter(order => !order.paid).length
-  const tabs = [
+  const kitchenOnly = canKitchen(app.role)
+  const pending = app.data.orders.filter(order => !order.paid && order.status === 'en_proceso').length
+  const tabs = canKitchen(app.role) ? [
+    { id: 'pedidos', label: 'Cocina', icon: ChefHat },
+  ] as const : [
     { id: 'pedidos', label: 'Inicio', icon: ClipboardList },
     { id: 'insumos', label: 'Insumos', icon: PackageOpen },
     { id: 'nuevo', label: 'Nuevo', icon: Plus },
@@ -195,27 +266,27 @@ export default function App() {
     go('notificaciones')
   }
 
-  return <div className={`app-shell ${hideValues ? 'privacy-values-hidden' : ''}`}>
+  return <div className={`app-shell ${hideValues ? 'privacy-values-hidden' : ''} ${kitchenOnly ? 'kitchen-shell' : ''}`}>
     <header className="app-bar">
       <button className="app-brand" onClick={() => navigate('pedidos')} aria-label="Ir a inicio">
         <img src="/palatto-logo.png" alt=""/>
         <span><strong>Palatto</strong></span>
       </button>
       <div className="app-bar-right">
-        {pending > 0 && page !== 'pedidos' && <span className="pending-dot" aria-label={`${pending} pedidos en proceso`}>{displayNumber(pending)}</span>}
-        <button className="privacy-toggle" type="button" aria-label={hideValues ? 'Mostrar valores numéricos' : 'Ocultar valores numéricos'} aria-pressed={hideValues} title={hideValues ? 'Mostrar valores' : 'Ocultar valores'} onClick={() => {
+        {!kitchenOnly && pending > 0 && page !== 'pedidos' && <span className="pending-dot" aria-label={`${pending} pedidos en proceso`}>{displayNumber(pending)}</span>}
+        {!kitchenOnly && <button className="privacy-toggle" type="button" aria-label={hideValues ? 'Mostrar valores numéricos' : 'Ocultar valores numéricos'} aria-pressed={hideValues} title={hideValues ? 'Mostrar valores' : 'Ocultar valores'} onClick={() => {
           const next = !hideValues
           sessionStorage.setItem('palatto-hide-values', next ? '1' : '0')
           setSensitiveValuesHidden(next)
           setHideValues(next)
-        }}>{hideValues ? <Eye size={19}/> : <EyeOff size={19}/>}</button>
-        <button className="notification-button" onClick={openNotifications} aria-label={unreadNotifications ? `Notificaciones, ${unreadNotifications} sin leer` : 'Notificaciones'}>
+        }}>{hideValues ? <Eye size={19}/> : <EyeOff size={19}/>}</button>}
+        {!kitchenOnly && <button className="notification-button" onClick={openNotifications} aria-label={unreadNotifications ? `Notificaciones, ${unreadNotifications} sin leer` : 'Notificaciones'}>
           <Bell size={19}/>
           {unreadNotifications > 0 && <i className="notification-badge">{displayNumber(unreadNotifications > 9 ? '9+' : unreadNotifications)}</i>}
-        </button>
-        <button className="avatar-button" onClick={() => navigate('cuenta')} aria-label="Tu cuenta y ajustes">
+        </button>}
+        {!kitchenOnly && <button className="avatar-button" onClick={() => navigate('cuenta')} aria-label="Tu cuenta y ajustes">
           {app.profile.name.slice(0, 1)}
-        </button>
+        </button>}
       </div>
     </header>
 
@@ -225,19 +296,19 @@ export default function App() {
         <button className="icon-button icon-sm" onClick={() => app.setError('')} aria-label="Cerrar aviso"><X size={16}/></button>
       </div>}
 
-      {page === 'pedidos' && <Home app={app} detail={detail} setDetail={setDetail} payRequest={payRequest} payHandled={() => setPayRequest(null)} onNew={() => navigate('nuevo')} onDrinks={() => navigate('bebidas')} onSummary={() => navigate('resumen')} onCash={business => go('cajas', business)} onEdit={edit}/>}
-      {page === 'resumen' && <DailySummary app={app} onCash={business => go('cajas', business)} onOrder={openOrder}/>}
-      {page === 'bebidas' && <DrinksSalesPage app={app} back={back}/>}
-      {page === 'notificaciones' && <Notifications app={app} back={back} onOrder={openOrder}/>}
-      {page === 'reportes' && <Reports app={app}/>}
-      {page === 'insumos' && <Inventory app={app}/>}
-      {page === 'nuevo' && canWrite(app.role) && <OrderEditor key={editing?.id || 'new'} app={app} order={editing} back={back} done={finishOrder} pay={paySaved}/>}
-      {page === 'cajas' && cashBusiness
+      {page === 'pedidos' && (kitchenOnly ? <KitchenBoard app={app} now={clock} onAccept={setAlertOrder} onManual={(order,minutes) => { const left=Math.max(0,Math.ceil((new Date(order.created_at).getTime()+30000-Date.now())/1000)); setManualPrep({order,value:String(minutes),secondsLeft:left}); setAlertOrder(null) }}/> : <Home app={app} detail={detail} setDetail={setDetail} payRequest={payRequest} payHandled={() => setPayRequest(null)} onNew={() => navigate('nuevo')} onDrinks={() => navigate('bebidas')} onSummary={() => navigate('resumen')} onCash={business => go('cajas', business)} onEdit={edit}/>)}
+      {!kitchenOnly && page === 'resumen' && <DailySummary app={app} onCash={business => go('cajas', business)} onOrder={openOrder}/>}
+      {!kitchenOnly && page === 'bebidas' && <DrinksSalesPage app={app} back={back}/>}
+      {!kitchenOnly && page === 'notificaciones' && <Notifications app={app} back={back} onOrder={openOrder}/>}
+      {!kitchenOnly && page === 'reportes' && <Reports app={app}/>}
+      {!kitchenOnly && page === 'insumos' && <Inventory app={app}/>}
+      {page === 'nuevo' && canTakeOrders(app.role) && <OrderEditor key={editing?.id || 'new'} app={app} order={editing} back={back} done={finishOrder} pay={paySaved}/>}
+      {!kitchenOnly && page === 'cajas' && cashBusiness
         ? <Cash app={app} back={back} onOrder={openOrder}/>
         : null}
-      {page === 'menu' && <Menu app={app}/>}
-      {page === 'equipo' && app.role === 'superadmin' && <Team app={app}/>}
-      {page === 'cuenta' && <AccountPage app={app} installPrompt={installPrompt} installed={installed} navigate={navigate} onInstall={async () => {
+      {!kitchenOnly && page === 'menu' && <Menu app={app}/>}
+      {!kitchenOnly && page === 'equipo' && app.role === 'superadmin' && <Team app={app}/>}
+      {!kitchenOnly && page === 'cuenta' && <AccountPage app={app} installPrompt={installPrompt} installed={installed} navigate={navigate} onInstall={async () => {
         if (!installPrompt) return
         const prompt = installPrompt as Event & { prompt: () => Promise<void>; userChoice: Promise<{ outcome: string }> }
         await prompt.prompt()
@@ -245,7 +316,7 @@ export default function App() {
       }}/>}
     </main>
 
-    {page !== 'nuevo' && page !== 'cuenta' && <nav className="tabbar" aria-label="Navegación principal">
+    {!kitchenOnly && page !== 'nuevo' && page !== 'cuenta' && <nav className="tabbar" aria-label="Navegación principal">
       {tabs.map(tab => <button key={tab.id}
         className={`tab ${page === tab.id || (page === 'resumen' && tab.id === 'pedidos') ? 'active' : ''} ${tab.id === 'nuevo' ? 'tab-new' : ''}`}
         aria-current={page === tab.id || (page === 'resumen' && tab.id === 'pedidos') ? 'page' : undefined}
@@ -257,13 +328,22 @@ export default function App() {
       </button>)}
     </nav>}
 
-    <div className="toast-stack" role="status" aria-live="polite">
+    {!kitchenOnly && <div className="toast-stack" role="status" aria-live="polite">
       {app.notices.map(item => <div className="toast" key={item.id}>
         <span className="toast-icon"><CheckCheck size={19}/></span>
         <span className="toast-copy"><strong>Listo</strong><span>{item.message}</span></span>
         <button className="toast-close" type="button" aria-label="Cerrar notificación" onClick={() => app.dismissNotice(item.id)}><X size={17}/></button>
       </div>)}
-    </div>
+    </div>}
+
+    {alertOrder && canKitchen(app.role) && <KitchenAlert key={alertOrder.id} app={app} order={alertOrder} initialSeconds={alertResumeSeconds} soundEnabled={soundEnabled} onSound={() => {
+      setSoundEnabled(current => !current)
+      if (audioRef.current?.state === 'suspended') void audioRef.current.resume()
+    }} onDismiss={() => setAlertOrder(null)} onManual={(minutes,secondsLeft) => {
+      setManualPrep({ order: alertOrder, value: String(minutes), secondsLeft })
+      setAlertOrder(null)
+    }}/>}
+    {manualPrep && <ManualPrepModal app={app} order={manualPrep.order} value={manualPrep.value} secondsLeft={manualPrep.secondsLeft} onChange={value => setManualPrep(current => current ? { ...current, value } : null)} onClose={() => { const pending=manualPrep; setManualPrep(null); if(pending.secondsLeft>0){setAlertResumeSeconds(pending.secondsLeft);setAlertOrder(pending.order)} }} onAccepted={() => setManualPrep(null)}/>}
   </div>
 }
 
@@ -334,6 +414,78 @@ function Home({ app, detail, setDetail, payRequest, payHandled, onNew, onDrinks,
       <img className="receipt-image" src={receipt} alt="Comprobante del pago"/>
     </Modal>}
   </>
+}
+
+function kitchenTimeLabel(seconds: number) {
+  const value = Math.max(0, seconds)
+  return `${Math.floor(value / 60)}:${String(value % 60).padStart(2, '0')}`
+}
+
+function KitchenBoard({ app, now, onAccept, onManual }: { app: Restaurant; now: number; onAccept: (order: Order) => void; onManual: (order: Order, minutes: number) => void }) {
+  const orders = app.data.orders.filter(order => !order.paid && order.status === 'en_proceso').sort((a,b) => a.created_at.localeCompare(b.created_at))
+  const incoming = orders.filter(order => !order.accepted_at)
+  const preparing = orders.filter(order => order.accepted_at)
+  return <KitchenQueue app={app} now={now} orders={orders} incoming={incoming} preparing={preparing} onAccept={onAccept} onManual={onManual}/>
+}
+
+function KitchenQueue({ app, now, orders, incoming, preparing, onAccept, onManual }: { app: Restaurant; now: number; orders: Order[]; incoming: Order[]; preparing: Order[]; onAccept: (order: Order) => void; onManual: (order: Order, minutes: number) => void }) {
+  const [estimates, setEstimates] = useState<Record<string,number>>({})
+  useEffect(() => {
+    let cancelled = false
+    void Promise.all(incoming.map(async order => {
+      try { const minutes = await app.kitchenEstimate(order); if (!cancelled) setEstimates(current => ({...current,[order.id]:minutes})) }
+      catch { /* el pedido puede ser aceptado en otro dispositivo durante la consulta */ }
+    }))
+    return () => { cancelled=true }
+  }, [incoming.map(order => `${order.id}:${order.version}`).join(','), app.kitchenEstimate])
+  return <section className="kitchen-page">
+    <div className="page-head"><div><p className="eyebrow">Área de preparación</p><h1>Cocina</h1></div><span className="kitchen-count">{orders.length} pendientes</span></div>
+    <p className="kitchen-intro">Acepta los pedidos en orden y mantén visible el tiempo estimado de cada uno.</p>
+    {incoming.length > 0 && <section className="kitchen-section"><h2>Nuevos pedidos</h2><div className="kitchen-grid">{incoming.map(order => <KitchenOrderCard key={order.id} app={app} order={order} now={now} recommendation={estimates[order.id] || recommendedPrepMinutes(order,app.data.orders,app.data.products)} onAccept={onAccept} onManual={minutes => onManual(order,minutes)}/>)}</div></section>}
+    {preparing.length > 0 && <section className="kitchen-section"><h2>En preparación</h2><div className="kitchen-grid">{preparing.map(order => <KitchenOrderCard key={order.id} app={app} order={order} now={now} recommendation={order.prep_minutes || 10} onAccept={onAccept} onManual={minutes => onManual(order,minutes)}/>)}</div></section>}
+    {!orders.length && <Empty title="Cocina está al día">Los pedidos nuevos aparecerán aquí al instante.</Empty>}
+    {app.error && <p className="alert alert-error" role="alert">{app.error}</p>}
+    <section className="kitchen-section kitchen-ready"><h2>Listos</h2>{app.data.orders.filter(order => order.status === 'completado' && !order.paid).slice(-8).reverse().map(order => <div className="kitchen-ready-row" key={order.id}><b>#{number(order.number)}</b><span>{order.customer}</span><span>{order.items.map(item => `${item.quantity} × ${item.name}`).join(' · ')}</span></div>)}{!app.data.orders.some(order => order.status === 'completado' && !order.paid) && <p className="muted small">Aún no hay pedidos listos sin cobrar.</p>}</section>
+  </section>
+}
+
+function KitchenOrderCard({ app, order, now, recommendation, onManual }: { app: Restaurant; order: Order; now: number; recommendation: number; onAccept: (order: Order) => void; onManual: (minutes: number) => void }) {
+  const waitingSeconds = Math.max(0, Math.ceil((new Date(order.created_at).getTime() + 30000 - now) / 1000))
+  const remainingSeconds = order.ready_at ? Math.ceil((new Date(order.ready_at).getTime() - now) / 1000) : 0
+  const progress = order.accepted_at ? Math.min(100, Math.max(0, 100 - remainingSeconds / Math.max(60, (order.prep_minutes || recommendation) * 60) * 100)) : 0
+  return <article className={`kitchen-card ${order.accepted_at ? 'is-preparing' : 'is-new'}`}>
+    <div className="kitchen-order-head"><span className="order-number">#{number(order.number)}</span><span>{dateTime(order.created_at)}</span></div>
+    <h3>{order.customer}</h3>
+    <ul>{order.items.map(item => <li key={item.product_id}><b>{displayNumber(item.quantity)}×</b> {item.name}</li>)}</ul>
+    {order.notes && <p className="detail-note">{order.notes}</p>}
+    {!order.accepted_at
+      ? <><div className="kitchen-suggest"><Timer size={18}/><span>Recomendado</span><b>{recommendation} min</b></div><div className="kitchen-actions"><button className="btn btn-primary btn-lg btn-block" disabled={app.busy} onClick={() => void app.acceptKitchenOrder(order,recommendation)}>Aceptar · {recommendation} min</button><button className="btn btn-ghost btn-block" disabled={app.busy} onClick={() => onManual(recommendation)}>Otro tiempo</button></div><small className="kitchen-deadline">La alerta inicial dura 30 segundos · {kitchenTimeLabel(waitingSeconds)} restantes</small></>
+      : <><div className="kitchen-clock-wrap"><div className={`kitchen-clock ${remainingSeconds < 0 ? 'is-late' : ''}`} style={{ '--progress': `${progress}%` } as React.CSSProperties}><span>{remainingSeconds < 0 ? `+${kitchenTimeLabel(-remainingSeconds)}` : kitchenTimeLabel(remainingSeconds)}</span><small>{remainingSeconds < 0 ? 'retraso' : 'restante'}</small></div><div><b>Listo a las {new Date(order.ready_at!).toLocaleTimeString('es-EC',{hour:'2-digit',minute:'2-digit'})}</b><small>{order.prep_minutes} min · aceptado {dateTime(order.accepted_at!)}</small></div></div><button className="btn btn-money btn-lg btn-block" disabled={app.busy} onClick={() => void app.advanceKitchenOrder(order)}>Marcar listo <Check size={18}/></button></>}
+  </article>
+}
+
+function KitchenAlert({ app, order, initialSeconds, soundEnabled, onSound, onDismiss, onManual }: { app: Restaurant; order: Order; initialSeconds: number | null; soundEnabled: boolean; onSound: () => void; onDismiss: () => void; onManual: (minutes: number, secondsLeft: number) => void }) {
+  const deadline=useRef(Date.now()+Math.max(0,initialSeconds??30)*1000)
+  const [now, setNow] = useState(Date.now())
+  const [recommendation,setRecommendation]=useState(recommendedPrepMinutes(order,app.data.orders,app.data.products))
+  useEffect(()=>{let live=true;void app.kitchenEstimate(order).then(minutes=>{if(live)setRecommendation(minutes)}).catch(()=>undefined);return()=>{live=false}},[order.id,order.version,app.kitchenEstimate])
+  useEffect(() => { const timer = window.setInterval(() => setNow(Date.now()),250); return () => window.clearInterval(timer) }, [])
+  const seconds=Math.max(0,Math.ceil((deadline.current-now)/1000))
+  useEffect(() => { if (seconds === 0) onDismiss() }, [seconds,onDismiss])
+  if (order.accepted_at || order.status !== 'en_proceso') return null
+  const left = seconds
+  const circumference = 2*Math.PI*112
+  return <div className="kitchen-alert-backdrop" role="alertdialog" aria-modal="true" aria-label={`Nuevo pedido ${number(order.number)}`}>
+    <div className="kitchen-alert-tools"><button className="btn btn-alert-sound" onClick={onSound}>{soundEnabled ? <Volume2 size={18}/> : <VolumeX size={18}/>} {soundEnabled ? 'Silenciar' : 'Activar sonido'}</button></div>
+    <div className="kitchen-alert-circle" style={{ '--alert-progress': circumference*(1-left/30) } as React.CSSProperties}>
+      <div className="kitchen-alert-content"><p className="eyebrow">Nuevo pedido · #{number(order.number)}</p><h2>{order.customer}</h2><ul>{order.items.map(item => <li key={item.product_id}>{displayNumber(item.quantity)} × {item.name}</li>)}</ul>{order.notes && <p>{order.notes}</p>}<small className="kitchen-alert-recommend">Sugerencia de cocina</small><strong className="kitchen-alert-minutes">{recommendation} min</strong><div className="kitchen-alert-buttons"><button className="btn btn-primary btn-block" disabled={app.busy} onClick={async () => {if(await app.acceptKitchenOrder(order,recommendation))onDismiss()}}>Aceptar recomendación</button><button className="btn btn-alert-outline btn-block" onClick={() => onManual(recommendation,left)}>Elegir otro tiempo</button></div><button className="link-button kitchen-alert-dismiss" onClick={onDismiss}>Dejar para la cola de cocina</button></div>
+      <span className="kitchen-alert-timer">{left}<small>seg</small></span>
+    </div>
+  </div>
+}
+
+function ManualPrepModal({ app, order, value, secondsLeft, onChange, onClose, onAccepted }: { app: Restaurant; order: Order; value: string; secondsLeft: number; onChange: (value: string) => void; onClose: () => void; onAccepted: () => void }) {
+  return <Modal title={`Tiempo · pedido #${number(order.number)}`} close={onClose} page><form className="form-stack" onSubmit={async event => { event.preventDefault(); const minutes=Number(value); if (!Number.isInteger(minutes)||minutes<1||minutes>240) return; if (await app.acceptKitchenOrder(order,minutes)) onAccepted() }}><p className="muted">El reloj del borde está pausado mientras eliges el tiempo.</p>{secondsLeft>0&&<p className="kitchen-deadline">Quedan {kitchenTimeLabel(secondsLeft)} de alerta pausada.</p>}<label>Tiempo estimado (minutos)<input autoFocus type="number" min="1" max="240" step="1" required value={value} onChange={event => onChange(event.target.value)}/></label>{app.error && <p className="alert alert-error" role="alert">{app.error}</p>}<button className="btn btn-primary btn-lg btn-block" disabled={app.busy||!Number.isInteger(Number(value))||Number(value)<1||Number(value)>240}>Confirmar y aceptar pedido</button></form></Modal>
 }
 
 function drinksTrackingSince(app: Restaurant): number {
@@ -967,6 +1119,7 @@ function Cash({ app, back, business = 'palatto', onOrder }: { app: Restaurant; b
   const [receipt, setReceipt] = useState<string | null>(null)
   const [viewReceipt, setViewReceipt] = useState<string | null>(null)
   const [selected, setSelected] = useState<Movement | null>(null)
+  const [confirmReconcile, setConfirmReconcile] = useState(false)
 
   const cashOnly = business === 'carreta'
   const movements = app.data.movements.filter(movement => movement.business === business && (!cashOnly || movement.method === 'efectivo')).sort((a, b) => b.created_at.localeCompare(a.created_at))
@@ -1013,6 +1166,7 @@ function Cash({ app, back, business = 'palatto', onOrder }: { app: Restaurant; b
           <button className="cash-action in" onClick={() => openForm('ingreso')}><Plus size={20}/>Ingresar</button>
           <button className="cash-action expense" onClick={() => openForm('gasto')}><ShoppingBag size={20}/>Gasto</button>
           <button className="cash-action out" onClick={() => openForm('retiro')}><ArrowDownLeft size={20}/>Retirar</button>
+          {!cashOnly && <button className="btn btn-ghost btn-block cash-reconcile" onClick={() => setConfirmReconcile(true)}><WalletCards size={18}/>Cuadrar caja</button>}
         </div>
       : <p className="alert alert-info"><ShieldCheck size={17}/>Solo Administrador y Superadmin ajustan la caja. Los cobros entran automáticamente.</p>}
 
@@ -1053,6 +1207,18 @@ function Cash({ app, back, business = 'palatto', onOrder }: { app: Restaurant; b
           {app.busy ? 'Guardando…' : form === 'ingreso' ? 'Ingresar dinero' : form === 'gasto' ? 'Registrar gasto' : 'Retirar dinero'}<Check size={18}/>
         </button>
       </form>
+    </Modal>}
+
+    {confirmReconcile && <Modal title="¿Cuadrar caja?" close={() => setConfirmReconcile(false)}>
+      <div className="form-stack">
+        <p>Confirma que revisaste los saldos físicos. Se guardará el cuadre con fecha, responsable y los saldos registrados en el sistema.</p>
+        <div className="report-method"><div><span>Efectivo</span><b>{money(balance('efectivo'))}</b></div><div><span>Transferencias</span><b>{money(balance('transferencia'))}</b></div></div>
+        {app.error && <p className="alert alert-error" role="alert">{app.error}</p>}
+        <button className="btn btn-primary btn-lg btn-block" disabled={app.busy} onClick={async () => {
+          const done = await app.reconcileCash(business)
+          if (done) setConfirmReconcile(false)
+        }}>{app.busy ? 'Guardando cuadre…' : 'Confirmar cuadre'}<Check size={18}/></button>
+      </div>
     </Modal>}
 
     {selected && <MovementDetail app={app} movement={selected} close={() => setSelected(null)} onOrder={onOrder} onReceipt={path => { setSelected(null); void showReceipt(path) }}/>}
@@ -1222,7 +1388,7 @@ function ProductForm({ app, product, close }: { app: Restaurant; product: Produc
   const [hasFee, setHasFee] = useState((product.takeaway_fee || 0) > 0)
   const [fee, setFee] = useState(product.takeaway_fee ? String(product.takeaway_fee / 100) : '')
   const [uploading, setUploading] = useState(false)
-  const [draft, setDraft] = useState(product)
+  const [draft, setDraft] = useState({ ...product, prep_minutes: product.prep_minutes || 10 })
   const [price, setPrice] = useState(product.price ? String(product.price / 100) : '')
 
   function applyFee() {
@@ -1255,6 +1421,7 @@ function ProductForm({ app, product, close }: { app: Restaurant; product: Produc
       </label>
       <label>Nombre<input required maxLength={120} value={draft.name} onChange={event => setDraft({ ...draft, name: event.target.value })} placeholder="Ej. Hamburguesa Palatto"/></label>
       <label>Precio ($)<input type="number" inputMode="decimal" step="0.01" min="0.01" max="10000" required value={price} onChange={event => setPrice(event.target.value)}/></label>
+      <label>Preparación estimada (minutos)<input type="number" inputMode="numeric" min="1" max="180" step="1" required value={draft.prep_minutes} onChange={event => setDraft({ ...draft, prep_minutes: Number(event.target.value) })}/><small>Tiempo habitual para una unidad. Hamburguesas: 10 min.</small></label>
       <label className="switch-row">
         <span><strong>Es agua o cola</strong><small>Se suma aparte en el resumen del día.</small></span>
         <input type="checkbox" checked={Boolean(draft.is_drink)} onChange={event => setDraft({ ...draft, is_drink: event.target.checked })}/>

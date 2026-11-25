@@ -86,8 +86,34 @@ test('Un solo menú, una sola caja, numeración diaria y ajustes', async t => {
     assert.ok(order)
   })
 
+  await t.test('Cocina acepta pedidos, usa la cola y solo puede cambiar preparación', async () => {
+    await db.exec('reset role')
+    await db.query("select create_order('Hamburguesa cola','',$1::jsonb)", [JSON.stringify([{ product_id: burger, quantity: 1 }])])
+    const first = await scalar("select id from orders where customer='Hamburguesa cola'") as string
+    await user('cocinero')
+    await assert.rejects(db.query('select create_order($1,\'\',$2::jsonb)', ['Cocinero', burgerItems]), /permiso/)
+    const firstVersion = await scalar('select version from orders where id=$1', [first]) as number
+    await db.query('select kitchen_accept_order($1,$2,10)', [first, firstVersion])
+    assert.equal(await scalar('select accepted_at from orders where id=$1', [first]) !== null, true)
+    await user('mesera')
+    await db.query("select create_order('Segundo turno','',$1::jsonb)", [burgerItems])
+    const second = await scalar("select id from orders where customer='Segundo turno'") as string
+    await user('cocinero')
+    const version = await scalar('select version from orders where id=$1', [second]) as number
+    await db.query('select kitchen_accept_order($1,$2,10)', [second, version])
+    const ready = await scalar('select ready_at from orders where id=$1', [second]) as string
+    assert.ok(new Date(ready).getTime() - Date.now() >= 8 * 60_000)
+    const paymentsBefore = await scalar('select count(*)::integer from movements where order_id=$1', [second])
+    await assert.rejects(db.query("select pay_order($1,$2,'efectivo',1000)", [second, version + 1]), /permiso/)
+    assert.equal(await scalar('select count(*)::integer from movements where order_id=$1', [second]), paymentsBefore)
+    await assert.rejects(db.query("select cash_movement('palatto',100,'efectivo','No caja')"), /permiso/)
+  })
+
   await t.test('La numeración empieza en 1 y se reinicia cada día', async () => {
     await db.exec('reset role')
+    await db.exec('delete from public.audits')
+    await db.exec('delete from public.order_payments')
+    await db.exec('delete from public.movements where order_id is not null')
     await db.exec('delete from public.orders')
     await db.query("insert into orders(number,order_day,customer,notes,items,created_by) values(9,current_date - 1,'Ayer','',$1::jsonb,$2)", [burgerItems, ids.mesera])
     await user('mesera')
