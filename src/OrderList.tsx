@@ -14,7 +14,7 @@ function PrepClock({ order }: { order: Order }) {
     return () => window.clearInterval(timer)
   }, [])
   if (!order.ready_at || !order.accepted_at) return null
-  const start = new Date(order.accepted_at).getTime()
+  const start = new Date(order.created_at).getTime()
   const end = new Date(order.ready_at).getTime()
   const now = Date.now()
   const duration = Math.max(1, end - start)
