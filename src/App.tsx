@@ -63,6 +63,7 @@ export default function App() {
   const [installPrompt, setInstallPrompt] = useState<Event | null>(null)
   const [installed, setInstalled] = useState(false)
   const [updateAvailable, setUpdateAvailable] = useState(false)
+  const waitingWorkerRef = useRef<ServiceWorker | null>(null)
   const [page, setPage] = useState<Page>('pedidos')
   const [editing, setEditing] = useState<Order | undefined>()
   const [cashBusiness, setCashBusiness] = useState<Business | null>(null)
@@ -95,14 +96,47 @@ export default function App() {
 
   useEffect(() => {
     let checking = false
+    let disposed = false
+    let registration: ServiceWorkerRegistration | null = null
+    let reloadOnControllerChange = false
+    const showUpdate = () => { if (!disposed) setUpdateAvailable(true) }
+    const onControllerChange = () => {
+      if (reloadOnControllerChange) window.location.reload()
+    }
+    const watchRegistration = (current: ServiceWorkerRegistration) => {
+      if (registration === current) return
+      registration = current
+      if (current.waiting && navigator.serviceWorker.controller) {
+        waitingWorkerRef.current = current.waiting
+        showUpdate()
+      }
+      current.addEventListener('updatefound', () => {
+        const installing = current.installing
+        if (!installing) return
+        installing.addEventListener('statechange', () => {
+          if (installing.state === 'installed' && navigator.serviceWorker.controller) {
+            waitingWorkerRef.current = installing
+            showUpdate()
+          }
+        })
+      })
+    }
     const checkForUpdate = async () => {
       if (checking) return
       checking = true
       try {
-        const response = await fetch('/version.json', { cache: 'no-store' })
-        if (!response.ok) return
-        const deployment = await response.json() as { version?: string }
-        setUpdateAvailable(Boolean(deployment.version && deployment.version !== __APP_BUILD_ID__))
+        if ('serviceWorker' in navigator) {
+          const current = registration || await navigator.serviceWorker.getRegistration()
+          if (current) {
+            watchRegistration(current)
+            await current.update().catch(() => undefined)
+          }
+        }
+        const response = await fetch(`/version.json?t=${Date.now()}`, { cache: 'no-store' })
+        if (response.ok) {
+          const deployment = await response.json() as { version?: string }
+          if (deployment.version && deployment.version !== __APP_BUILD_ID__) showUpdate()
+        }
       } catch {
         // Keep the application usable while offline or while Vercel is unavailable.
       } finally {
@@ -112,9 +146,28 @@ export default function App() {
     void checkForUpdate()
     const interval = window.setInterval(() => { void checkForUpdate() }, 60_000)
     const onVisible = () => { if (document.visibilityState === 'visible') void checkForUpdate() }
+    navigator.serviceWorker?.addEventListener('controllerchange', onControllerChange)
+    void navigator.serviceWorker?.getRegistration().then(current => { if (current && !disposed) watchRegistration(current) }).catch(() => undefined)
     document.addEventListener('visibilitychange', onVisible)
-    return () => { window.clearInterval(interval); document.removeEventListener('visibilitychange', onVisible) }
+    return () => {
+      disposed = true
+      window.clearInterval(interval)
+      document.removeEventListener('visibilitychange', onVisible)
+      navigator.serviceWorker?.removeEventListener('controllerchange', onControllerChange)
+    }
   }, [])
+
+  function applyAvailableUpdate() {
+    const worker = waitingWorkerRef.current
+    if (worker) {
+      const controllerChanged = () => window.location.reload()
+      navigator.serviceWorker.addEventListener('controllerchange', controllerChanged, { once: true })
+      worker.postMessage({ type: 'SKIP_WAITING' })
+      window.setTimeout(() => window.location.reload(), 2500)
+      return
+    }
+    window.location.reload()
+  }
 
   useEffect(() => {
     const pendingRequests = app.data.orders.filter(order => order.prep_requested)
@@ -268,7 +321,9 @@ export default function App() {
     const onInstall = (event: Event) => { event.preventDefault(); setInstallPrompt(event) }
     const onInstalled = () => { setInstalled(true); setInstallPrompt(null) }
     if (window.matchMedia('(display-mode: standalone)').matches) setInstalled(true)
-    void navigator.serviceWorker?.register('/sw.js').catch(() => undefined)
+    void navigator.serviceWorker?.register('/sw.js').then(registration => {
+      void registration.update().catch(() => undefined)
+    }).catch(() => undefined)
     window.addEventListener('beforeinstallprompt', onInstall)
     window.addEventListener('appinstalled', onInstalled)
     return () => {
@@ -376,7 +431,7 @@ export default function App() {
       </div>
     </header>
 
-    {updateAvailable && <button type="button" className="app-update-banner" onClick={() => window.location.reload()} aria-live="polite">
+    {updateAvailable && <button type="button" className="app-update-banner" onClick={applyAvailableUpdate} aria-live="polite">
       <RefreshCw size={17} aria-hidden="true"/><span><strong>Nueva actualización disponible</strong><small>Toca para recargar Palatto</small></span><ArrowRight size={17} aria-hidden="true"/>
     </button>}
 
