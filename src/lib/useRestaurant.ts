@@ -200,7 +200,10 @@ export function useRestaurant() {
         rejectKitchenOrder: (order: Order) => run(async () => {
             if (role !== 'cocinero') throw new Error('Solo cocina puede rechazar solicitudes.');
             await rpc('kitchen_reject_order', { p_id: order.id, p_version: order.version });
-        }, 'Pedido rechazado por cocina. Elimina este pedido y crea otro con tiempo asignado si aún lo necesitas.', undefined, true),
+        }, 'Pedido rechazado y cancelado por cocina.', () => ({
+            event: 'order_deleted',
+            details: { actorName: profile?.name, orderId: order.id, orderNumber: order.number, customer: order.customer, reason: 'Rechazado y cancelado por cocina' },
+        }), true),
         advanceKitchenOrder: (order: Order) => run(async () => {
             if (role !== 'cocinero') throw new Error('Solo cocina puede finalizar pedidos.');
             await rpc('kitchen_advance_order', { p_id: order.id, p_version: order.version });

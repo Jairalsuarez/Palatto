@@ -83,7 +83,7 @@ export default function App() {
   const [notificationsSeen, setNotificationsSeen] = useState(() => localStorage.getItem(notificationsSeenKey) || '')
   const unreadNotifications = app.data.notifications.filter(item => !notificationsSeen || item.created_at > notificationsSeen).length
   const historyInitialized = useRef(false)
-  const previousCookRequests = useRef(new Set<string>())
+  const previousCookRequests = useRef(new Map<string, { createdBy?: string; number: number }>())
   const waitForCookRef = useRef<HTMLDivElement>(null)
   const waitingCookOrder = !canKitchen(app.role) && app.profile
     ? app.data.orders.find(order => order.prep_requested && order.created_by === app.profile!.id)
@@ -92,22 +92,25 @@ export default function App() {
   useEffect(() => { setSensitiveValuesHidden(hideValues) }, [hideValues])
 
   useEffect(() => {
-    const current = new Set(app.data.orders.filter(order => order.prep_requested).map(order => order.id))
+    const pendingRequests = app.data.orders.filter(order => order.prep_requested)
+    const current = new Map<string, { createdBy?: string; number: number }>(pendingRequests.map(order => [order.id, { createdBy: order.created_by, number: order.number }] as const))
     if (deferredKitchenPay) {
       const deferredOrder = app.data.orders.find(order => order.id === deferredKitchenPay)
-      if (deferredOrder && !deferredOrder.prep_requested) {
-        if (deferredOrder.accepted_at) setPayRequest(deferredOrder.id)
+      if (!deferredOrder || !deferredOrder.prep_requested) {
+        if (deferredOrder?.accepted_at) setPayRequest(deferredOrder.id)
         setDeferredKitchenPay(null)
       }
     }
-    for (const id of previousCookRequests.current) {
+    for (const [id, request] of previousCookRequests.current) {
       if (current.has(id)) continue
       const order = app.data.orders.find(candidate => candidate.id === id)
-      if (!order || order.created_by !== app.profile?.id) continue
-      if (order.accepted_at) {
+      if ((order?.created_by || request.createdBy) !== app.profile?.id) continue
+      if (order?.accepted_at) {
         app.setNotice(`Cocina aceptó el pedido #${order.number}. Listo en aproximadamente ${order.prep_minutes || 0} min.`)
-      } else if (order.prep_rejected) {
-        app.setNotice(`Cocina rechazó el pedido #${order.number}. Si aún lo necesitas, elimina este pedido y crea otro con tiempo asignado.`)
+      } else if (order?.prep_rejected) {
+        app.setNotice(`Cocina rechazó el pedido #${order.number}.`)
+      } else if (!order) {
+        app.setNotice(`Cocina rechazó y canceló el pedido #${request.number}.`)
       }
     }
     previousCookRequests.current = current
