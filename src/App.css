@@ -1298,6 +1298,8 @@ dialog.native-dialog.dialog-large {
 
 /* product picker */
 .picker { display: grid; gap: 12px; }
+.picker-filters { margin-top: -4px; }
+.picker-filters > button { min-height: 38px; padding: 0 12px; font-size: .8rem; }
 .product-list { display: grid; gap: 8px; }
 .product-row {
   display: flex;

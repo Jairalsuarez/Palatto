@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import type { FormEvent, ReactNode } from 'react'
 import {
   ArrowDownLeft, ArrowRight, ArrowUpRight, Banknote, BarChart3, Bell, BookOpen, Check, CheckCheck,
@@ -890,15 +890,48 @@ function OrderEditor({ app, order, back, done, pay }: { app: Restaurant; order?:
   </div>
 }
 
+type PickerFilter = 'todos' | 'recientes' | 'vendidos' | 'comida' | 'bebidas'
+const pickerFilters: { id: PickerFilter; label: string }[] = [
+  { id: 'todos', label: 'Todos' },
+  { id: 'recientes', label: 'Recientes' },
+  { id: 'vendidos', label: 'Más vendidos' },
+  { id: 'comida', label: 'Comidas' },
+  { id: 'bebidas', label: 'Aguas y colas' },
+]
+
 function ProductPicker({ app, selected, add }: { app: Restaurant; selected: Item[]; add: (product: Product) => void }) {
   const [search, setSearch] = useState('')
-  const products = app.data.products.filter(product =>
-    product.active && product.name.toLowerCase().includes(search.toLowerCase()))
+  const [filter, setFilter] = useState<PickerFilter>('todos')
+  const { latest, sold } = useMemo(() => {
+    const latest = new Map<string, number>()
+    const sold = new Map<string, number>()
+    for (const order of app.data.orders) {
+      const time = new Date(order.paid_at || order.created_at).getTime()
+      for (const item of order.items) {
+        latest.set(item.product_id, Math.max(latest.get(item.product_id) || 0, time))
+        if (order.paid) sold.set(item.product_id, (sold.get(item.product_id) || 0) + item.quantity)
+      }
+    }
+    return { latest, sold }
+  }, [app.data.orders])
+
+  const matches = app.data.products.filter(product =>
+    product.active && product.name.toLowerCase().includes(search.trim().toLowerCase()))
+  const products = matches.filter(product => filter === 'comida'
+    ? !product.is_drink
+    : filter === 'bebidas'
+      ? Boolean(product.is_drink)
+      : true)
+  if (filter === 'recientes') products.sort((a, b) => (latest.get(b.id) || 0) - (latest.get(a.id) || 0) || a.name.localeCompare(b.name))
+  if (filter === 'vendidos') products.sort((a, b) => (sold.get(b.id) || 0) - (sold.get(a.id) || 0) || a.name.localeCompare(b.name))
 
   return <section className="picker">
     <label className="search"><Search size={18}/><input value={search} onChange={event => setSearch(event.target.value)} autoFocus placeholder="Buscar producto" aria-label="Buscar producto"/></label>
+    <div className="segmented picker-filters" role="group" aria-label="Filtrar productos">
+      {pickerFilters.map(item => <button type="button" key={item.id} className={filter === item.id ? 'active' : ''} aria-pressed={filter === item.id} onClick={() => setFilter(item.id)}>{item.label}</button>)}
+    </div>
     {!products.length
-      ? <Empty title="Sin productos">{search ? 'Prueba otra búsqueda.' : 'Agrega productos desde Menú.'}</Empty>
+      ? <Empty title={search ? 'No encontramos ese producto' : 'Sin productos'}>{search ? 'Prueba otra búsqueda o cambia el filtro.' : filter !== 'todos' ? 'No hay productos en este filtro.' : 'Agrega productos desde Menú.'}</Empty>
       : <div className="product-list">
           {products.map(product => {
             const count = selected.find(item => item.product_id === product.id)?.quantity
@@ -906,7 +939,7 @@ function ProductPicker({ app, selected, add }: { app: Restaurant; selected: Item
               <span className="product-row-photo"><ProductPhoto app={app} product={product}/></span>
               <span className="product-row-info">
                 <strong>{product.name}</strong>
-                <small>{product.is_drink ? 'Agua o cola' : 'Comida'}{product.takeaway_fee ? ` · +${money(product.takeaway_fee)} para llevar` : ''}</small>
+                <small>{product.is_drink ? 'Agua o cola' : 'Comida'}{product.takeaway_fee ? ` · +${money(product.takeaway_fee)} para llevar` : ''}{filter === 'vendidos' && sold.get(product.id) ? ` · ${displayNumber(sold.get(product.id)!)} vendidos` : ''}</small>
               </span>
               {count ? <span className="product-row-count">{count}</span> : null}
               <b className="product-row-price">{money(product.price)}</b>

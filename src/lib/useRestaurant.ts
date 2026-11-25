@@ -59,9 +59,20 @@ export function useRestaurant() {
             }
             return rows;
         }
+        async function loadRecentNotifications() {
+            try {
+                const { data: rows, error } = await supabase!.from('notifications').select('*').order('created_at', { ascending: false }).limit(300);
+                if (error)
+                    throw error;
+                return rows;
+            }
+            catch {
+                return [];
+            }
+        }
         const [results, optionalRows] = await Promise.all([
             Promise.all(['profiles', 'products', 'orders', 'shifts', 'movements', 'order_payments', 'audits'].map(table => loadRows(table))),
-            Promise.all([loadRows('app_settings', true, 'key'), loadRows('notifications', true)]),
+            Promise.all([loadRows('app_settings', true, 'key'), loadRecentNotifications()]),
         ]);
         if (version !== refreshVersion.current)
             return;
