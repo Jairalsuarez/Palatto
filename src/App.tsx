@@ -3,7 +3,7 @@ import type { FormEvent, ReactNode } from 'react'
 import {
   ArrowDownLeft, ArrowRight, ArrowUpRight, Banknote, BarChart3, Bell, BookOpen, Check, CheckCheck,
   ChevronLeft, ClipboardList, Coffee, CreditCard, Download, Flame, History, KeyRound, LogOut, Minus, PackageOpen,
-  Eye, EyeOff, Pencil, Plus, Power, Receipt, Search, ShieldCheck, ShoppingBag, Trash2, Users, X, ChefHat, Timer, Volume2, VolumeX, WalletCards,
+  Eye, EyeOff, Pencil, Plus, Power, Receipt, Search, ShieldCheck, ShoppingBag, Trash2, Users, X, Timer, Volume2, VolumeX, WalletCards,
 } from 'lucide-react'
 import { Modal } from './Modal'
 import { useRestaurant } from './lib/useRestaurant'
@@ -200,11 +200,8 @@ export default function App() {
   if (!app.profile) return <Login app={app}/>
   if (app.profile.must_change_password) return <PasswordChange app={app} mandatory/>
 
-  const kitchenOnly = canKitchen(app.role)
   const pending = app.data.orders.filter(order => !order.paid && order.status === 'en_proceso').length
-  const tabs = canKitchen(app.role) ? [
-    { id: 'pedidos', label: 'Cocina', icon: ChefHat },
-  ] as const : [
+  const tabs = [
     { id: 'pedidos', label: 'Inicio', icon: ClipboardList },
     { id: 'insumos', label: 'Insumos', icon: PackageOpen },
     { id: 'nuevo', label: 'Nuevo', icon: Plus },
@@ -266,27 +263,27 @@ export default function App() {
     go('notificaciones')
   }
 
-  return <div className={`app-shell ${hideValues ? 'privacy-values-hidden' : ''} ${kitchenOnly ? 'kitchen-shell' : ''}`}>
+  return <div className={`app-shell ${hideValues ? 'privacy-values-hidden' : ''}`}>
     <header className="app-bar">
       <button className="app-brand" onClick={() => navigate('pedidos')} aria-label="Ir a inicio">
         <img src="/palatto-logo.png" alt=""/>
         <span><strong>Palatto</strong></span>
       </button>
       <div className="app-bar-right">
-        {!kitchenOnly && pending > 0 && page !== 'pedidos' && <span className="pending-dot" aria-label={`${pending} pedidos en proceso`}>{displayNumber(pending)}</span>}
-        {!kitchenOnly && <button className="privacy-toggle" type="button" aria-label={hideValues ? 'Mostrar valores numéricos' : 'Ocultar valores numéricos'} aria-pressed={hideValues} title={hideValues ? 'Mostrar valores' : 'Ocultar valores'} onClick={() => {
+        {pending > 0 && page !== 'pedidos' && <span className="pending-dot" aria-label={`${pending} pedidos en proceso`}>{displayNumber(pending)}</span>}
+        <button className="privacy-toggle" type="button" aria-label={hideValues ? 'Mostrar valores numéricos' : 'Ocultar valores numéricos'} aria-pressed={hideValues} title={hideValues ? 'Mostrar valores' : 'Ocultar valores'} onClick={() => {
           const next = !hideValues
           sessionStorage.setItem('palatto-hide-values', next ? '1' : '0')
           setSensitiveValuesHidden(next)
           setHideValues(next)
-        }}>{hideValues ? <Eye size={19}/> : <EyeOff size={19}/>}</button>}
-        {!kitchenOnly && <button className="notification-button" onClick={openNotifications} aria-label={unreadNotifications ? `Notificaciones, ${unreadNotifications} sin leer` : 'Notificaciones'}>
+        }}>{hideValues ? <Eye size={19}/> : <EyeOff size={19}/>}</button>
+        <button className="notification-button" onClick={openNotifications} aria-label={unreadNotifications ? `Notificaciones, ${unreadNotifications} sin leer` : 'Notificaciones'}>
           <Bell size={19}/>
           {unreadNotifications > 0 && <i className="notification-badge">{displayNumber(unreadNotifications > 9 ? '9+' : unreadNotifications)}</i>}
-        </button>}
-        {!kitchenOnly && <button className="avatar-button" onClick={() => navigate('cuenta')} aria-label="Tu cuenta y ajustes">
+        </button>
+        <button className="avatar-button" onClick={() => navigate('cuenta')} aria-label="Tu cuenta y ajustes">
           {app.profile.name.slice(0, 1)}
-        </button>}
+        </button>
       </div>
     </header>
 
@@ -296,19 +293,22 @@ export default function App() {
         <button className="icon-button icon-sm" onClick={() => app.setError('')} aria-label="Cerrar aviso"><X size={16}/></button>
       </div>}
 
-      {page === 'pedidos' && (kitchenOnly ? <KitchenBoard app={app} now={clock} onAccept={setAlertOrder} onManual={(order,minutes) => { const left=Math.max(0,Math.ceil((new Date(order.created_at).getTime()+30000-Date.now())/1000)); setManualPrep({order,value:String(minutes),secondsLeft:left}); setAlertOrder(null) }}/> : <Home app={app} detail={detail} setDetail={setDetail} payRequest={payRequest} payHandled={() => setPayRequest(null)} onNew={() => navigate('nuevo')} onDrinks={() => navigate('bebidas')} onSummary={() => navigate('resumen')} onCash={business => go('cajas', business)} onEdit={edit}/>)}
-      {!kitchenOnly && page === 'resumen' && <DailySummary app={app} onCash={business => go('cajas', business)} onOrder={openOrder}/>}
-      {!kitchenOnly && page === 'bebidas' && <DrinksSalesPage app={app} back={back}/>}
-      {!kitchenOnly && page === 'notificaciones' && <Notifications app={app} back={back} onOrder={openOrder}/>}
-      {!kitchenOnly && page === 'reportes' && <Reports app={app}/>}
-      {!kitchenOnly && page === 'insumos' && <Inventory app={app}/>}
+      {page === 'pedidos' && <>
+        <Home app={app} detail={detail} setDetail={setDetail} payRequest={payRequest} payHandled={() => setPayRequest(null)} onNew={() => navigate('nuevo')} onDrinks={() => navigate('bebidas')} onSummary={() => navigate('resumen')} onCash={business => go('cajas', business)} onEdit={edit}/>
+        {canKitchen(app.role) && <KitchenBoard app={app} now={clock} onAccept={setAlertOrder} onManual={(order,minutes) => { const left=Math.max(0,Math.ceil((new Date(order.created_at).getTime()+30000-Date.now())/1000)); setManualPrep({order,value:String(minutes),secondsLeft:left}); setAlertOrder(null) }}/>}
+      </>}
+      {page === 'resumen' && <DailySummary app={app} onCash={business => go('cajas', business)} onOrder={openOrder}/>}
+      {page === 'bebidas' && <DrinksSalesPage app={app} back={back}/>}
+      {page === 'notificaciones' && <Notifications app={app} back={back} onOrder={openOrder}/>}
+      {page === 'reportes' && <Reports app={app}/>}
+      {page === 'insumos' && <Inventory app={app}/>}
       {page === 'nuevo' && canTakeOrders(app.role) && <OrderEditor key={editing?.id || 'new'} app={app} order={editing} back={back} done={finishOrder} pay={paySaved}/>}
-      {!kitchenOnly && page === 'cajas' && cashBusiness
+      {page === 'cajas' && cashBusiness && !canKitchen(app.role)
         ? <Cash app={app} back={back} onOrder={openOrder}/>
         : null}
-      {!kitchenOnly && page === 'menu' && <Menu app={app}/>}
-      {!kitchenOnly && page === 'equipo' && app.role === 'superadmin' && <Team app={app}/>}
-      {!kitchenOnly && page === 'cuenta' && <AccountPage app={app} installPrompt={installPrompt} installed={installed} navigate={navigate} onInstall={async () => {
+      {page === 'menu' && <Menu app={app}/>}
+      {page === 'equipo' && app.role === 'superadmin' && <Team app={app}/>}
+      {page === 'cuenta' && <AccountPage app={app} installPrompt={installPrompt} installed={installed} navigate={navigate} onInstall={async () => {
         if (!installPrompt) return
         const prompt = installPrompt as Event & { prompt: () => Promise<void>; userChoice: Promise<{ outcome: string }> }
         await prompt.prompt()
@@ -316,7 +316,7 @@ export default function App() {
       }}/>}
     </main>
 
-    {!kitchenOnly && page !== 'nuevo' && page !== 'cuenta' && <nav className="tabbar" aria-label="Navegación principal">
+    {page !== 'nuevo' && page !== 'cuenta' && <nav className="tabbar" aria-label="Navegación principal">
       {tabs.map(tab => <button key={tab.id}
         className={`tab ${page === tab.id || (page === 'resumen' && tab.id === 'pedidos') ? 'active' : ''} ${tab.id === 'nuevo' ? 'tab-new' : ''}`}
         aria-current={page === tab.id || (page === 'resumen' && tab.id === 'pedidos') ? 'page' : undefined}
@@ -328,13 +328,13 @@ export default function App() {
       </button>)}
     </nav>}
 
-    {!kitchenOnly && <div className="toast-stack" role="status" aria-live="polite">
+    <div className="toast-stack" role="status" aria-live="polite">
       {app.notices.map(item => <div className="toast" key={item.id}>
         <span className="toast-icon"><CheckCheck size={19}/></span>
         <span className="toast-copy"><strong>Listo</strong><span>{item.message}</span></span>
         <button className="toast-close" type="button" aria-label="Cerrar notificación" onClick={() => app.dismissNotice(item.id)}><X size={17}/></button>
       </div>)}
-    </div>}
+    </div>
 
     {alertOrder && canKitchen(app.role) && <KitchenAlert key={alertOrder.id} app={app} order={alertOrder} initialSeconds={alertResumeSeconds} soundEnabled={soundEnabled} onSound={() => {
       setSoundEnabled(current => !current)

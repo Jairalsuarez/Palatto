@@ -24,7 +24,7 @@ export const cents = (value: string) => Math.round(Number(value) * 100)
 export const itemTotal = (item: Item) => item.price * item.quantity + (item.takeaway_fee || 0) * (item.takeaway_quantity || 0)
 export const itemIsDrink = (item: Item) => Boolean(item.is_drink) || item.business === 'carreta'
 export const total = (items: Item[], business?: Business) => items.filter(i => !business || i.business === business).reduce((sum, i) => sum + itemTotal(i), 0)
-export const canWrite = (role: Role) => role !== 'visualizador'
+export const canWrite = (role: Role) => role !== 'visualizador' && role !== 'cocinero'
 export const canTakeOrders = (role: Role) => role === 'superadmin' || role === 'administrador' || role === 'mesera' || role === 'mesero'
 export const canKitchen = (role: Role) => role === 'cocinero'
 export const canMenu = (role: Role) => ['superadmin', 'administrador'].includes(role)
