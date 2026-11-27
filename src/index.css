@@ -45,12 +45,20 @@
 
 * { box-sizing: border-box; }
 
-html { -webkit-text-size-adjust: 100%; }
+html {
+  -webkit-text-size-adjust: 100%;
+  max-width: 100%;
+  overflow-x: clip;
+  overscroll-behavior-x: none;
+}
 
 body {
   margin: 0;
-  min-width: 320px;
+  width: 100%;
+  max-width: 100%;
   min-height: 100dvh;
+  overflow-x: clip;
+  overscroll-behavior-x: none;
   background:
     radial-gradient(120% 70% at 50% -20%, #fffaf2 0%, transparent 60%),
     var(--bg);
@@ -62,6 +70,13 @@ body {
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
   text-rendering: optimizeLegibility;
+}
+
+#root {
+  width: 100%;
+  max-width: 100%;
+  min-height: 100dvh;
+  overflow-x: clip;
 }
 
 button, input, textarea, select { font: inherit; color: inherit; }
