@@ -16,6 +16,7 @@ function allowedEndpoint(value: string) {
 type Details = {
   actorName?: string
   orderId?: string
+  movementId?: string
   orderNumber?: number
   customer?: string
   takeaway?: boolean
@@ -225,7 +226,7 @@ Deno.serve(async request => {
         try {
           await webpush.sendNotification({ endpoint: subscription.endpoint, keys: { p256dh: subscription.p256dh, auth: subscription.auth } },
             JSON.stringify({ title: notice.title, body: notice.body, url: '/', orderId: typeof details.orderId === 'string' ? details.orderId : null }),
-            { TTL: 3600, urgency: 'high', timeout: 10000 })
+            { TTL: 300, urgency: 'high', timeout: 10000 })
           return true
         } catch (error) {
           const status = Number((error as { statusCode?: number }).statusCode || 0)

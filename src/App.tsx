@@ -144,44 +144,32 @@ export default function App() {
     if (!userId || pushSyncUserRef.current === userId || !publicKey || !('serviceWorker' in navigator) || !('PushManager' in window) || !('Notification' in window) || Notification.permission !== 'granted') return
     pushSyncUserRef.current = userId
     let cancelled = false
-    void (async () => {
-      const registration = await navigator.serviceWorker.ready
-      let subscription = await registration.pushManager.getSubscription()
-      const hadLocalSubscription = Boolean(subscription)
-      if (!subscription) subscription = await registration.pushManager.subscribe({ userVisibleOnly: true, applicationServerKey: decodeVapidKey(publicKey) })
-      const status = await app.push({ action: 'subscription_status', endpoint: subscription.endpoint }) as { registered?: boolean }
-      if (cancelled) return
-      if (!status.registered && hadLocalSubscription) {
-        await subscription.unsubscribe()
-        subscription = await registration.pushManager.subscribe({ userVisibleOnly: true, applicationServerKey: decodeVapidKey(publicKey) })
+    let retryTimer: number | undefined
+    const synchronize = async () => {
+      try {
+        const registration = await navigator.serviceWorker.ready
+        let subscription = await registration.pushManager.getSubscription()
+        const hadLocalSubscription = Boolean(subscription)
+        if (!subscription) subscription = await registration.pushManager.subscribe({ userVisibleOnly: true, applicationServerKey: decodeVapidKey(publicKey) })
+        const status = await app.push({ action: 'subscription_status', endpoint: subscription.endpoint }) as { registered?: boolean }
+        if (cancelled) return
+        if (!status.registered && hadLocalSubscription) {
+          await subscription.unsubscribe()
+          subscription = await registration.pushManager.subscribe({ userVisibleOnly: true, applicationServerKey: decodeVapidKey(publicKey) })
+        }
+        if (!status.registered) await app.push({ action: 'subscribe', subscription: subscription.toJSON() })
+        if (!cancelled) window.dispatchEvent(new Event('palatto:push-subscription-synced'))
+      } catch (error) {
+        console.warn('No se pudo sincronizar la suscripción push; se volverá a intentar.', error)
+        if (!cancelled) retryTimer = window.setTimeout(() => { void synchronize() }, 60_000)
       }
-      if (!status.registered) await app.push({ action: 'subscribe', subscription: subscription.toJSON() })
-      if (!cancelled) window.dispatchEvent(new Event('palatto:push-subscription-synced'))
-    })().catch(() => { if (pushSyncUserRef.current === userId) pushSyncUserRef.current = '' })
-    return () => { cancelled = true }
-  }, [app.profile?.id])
-
-  useEffect(() => {
-    const userId = app.profile?.id
-    const publicKey = import.meta.env.VITE_VAPID_PUBLIC_KEY as string | undefined
-    if (!userId || pushSyncUserRef.current === userId || !publicKey || !('serviceWorker' in navigator) || !('PushManager' in window) || !('Notification' in window) || Notification.permission !== 'granted') return
-    pushSyncUserRef.current = userId
-    let cancelled = false
-    void (async () => {
-      const registration = await navigator.serviceWorker.ready
-      let subscription = await registration.pushManager.getSubscription()
-      const hadLocalSubscription = Boolean(subscription)
-      if (!subscription) subscription = await registration.pushManager.subscribe({ userVisibleOnly: true, applicationServerKey: decodeVapidKey(publicKey) })
-      const status = await app.push({ action: 'subscription_status', endpoint: subscription.endpoint }) as { registered?: boolean }
-      if (cancelled) return
-      if (!status.registered && hadLocalSubscription) {
-        await subscription.unsubscribe()
-        subscription = await registration.pushManager.subscribe({ userVisibleOnly: true, applicationServerKey: decodeVapidKey(publicKey) })
-      }
-      if (!status.registered) await app.push({ action: 'subscribe', subscription: subscription.toJSON() })
-      if (!cancelled) window.dispatchEvent(new Event('palatto:push-subscription-synced'))
-    })().catch(() => { if (pushSyncUserRef.current === userId) pushSyncUserRef.current = '' })
-    return () => { cancelled = true }
+    }
+    void synchronize()
+    return () => {
+      cancelled = true
+      window.clearTimeout(retryTimer)
+      if (pushSyncUserRef.current === userId) pushSyncUserRef.current = ''
+    }
   }, [app.profile?.id])
 
   useEffect(() => {

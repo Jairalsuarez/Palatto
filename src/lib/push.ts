@@ -24,6 +24,7 @@ export type PushActivity =
 export interface PushDetails {
   actorName?: string
   orderId?: string
+  movementId?: string
   orderNumber?: number
   customer?: string
   takeaway?: boolean
@@ -55,11 +56,11 @@ export async function notifyActivity(
     })
     if (error || data?.error) {
       console.error('No se pudo enviar la notificación push', error || data?.error)
-      return null
+      return { sent: 0, attempted: 0, reason: 'function_error' }
     }
-    if (data?.sent === 0 && data?.reason) console.warn('Notificación push sin destinatarios efectivos', data)
+    if (data?.sent === 0) console.warn('Notificación push sin destinatarios efectivos', data)
     return data as { sent: number; attempted: number; reason?: string }
   } catch {
-    return null
+    return { sent: 0, attempted: 0, reason: 'network_error' }
   }
 }

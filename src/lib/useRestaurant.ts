@@ -114,10 +114,31 @@ export function useRestaurant() {
         setError('');
         try {
             await action();
+            let orderCreated = false;
             if (activity) {
                 try {
                     const resolved = typeof activity === 'function' ? activity() : { event: activity, details: undefined };
-                    void notifyActivity(resolved.event, resolved.details);
+                    orderCreated = resolved.event === 'order_created';
+                    if (orderCreated) {
+                        void notifyActivity(resolved.event, resolved.details).then(result => {
+                            if (!result || result.sent > 0) return;
+                            const reason = result.reason;
+                            const detail = reason === 'push_not_configured'
+                                ? 'Faltan las claves VAPID en Supabase.'
+                                : reason === 'no_subscriptions'
+                                    ? 'El cocinero debe activar notificaciones en su dispositivo.'
+                                    : reason === 'no_recipients'
+                                        ? 'No hay cuentas activas con rol Cocinero.'
+                                        : reason === 'internal_only'
+                                            ? 'Este pedido no contiene productos de cocina.'
+                                            : reason === 'network_error' || reason === 'function_error'
+                                                ? 'El servidor de notificaciones no respondió correctamente.'
+                                            : 'Revisa la conexión y la configuración push de Supabase.';
+                            setNotice(`Pedido guardado, pero no se envió el aviso push. ${detail}`);
+                        });
+                    } else {
+                        void notifyActivity(resolved.event, resolved.details);
+                    }
                 }
                 catch { /* la notificación nunca debe bloquear la operación */ }
             }
@@ -319,16 +340,20 @@ export function useRestaurant() {
             if (!product.id) throw new Error('El producto ya no existe.');
             await rpc('delete_product', { p_id: product.id });
         }, 'Producto eliminado del menú', () => ({ event: 'product_saved', details: { actorName: profile?.name, name: product.name, reason: 'eliminado' } })),
-        cash: (business: Business, amount: number, method: Method, reason: string, kind: MovementKind = 'ingreso', receipt: string | null = null) => run(async () => {
-            if (!canCash(role, business)) throw new Error('No puedes ajustar esta caja.');
-            if (!Number.isSafeInteger(amount) || amount === 0 || reason.trim().length < 3) throw new Error('Indica un importe válido y el motivo.');
-            if (kind === 'ingreso' && amount < 0) throw new Error('El ingreso debe ser positivo.');
-            if ((kind === 'gasto' || kind === 'retiro') && amount > 0) throw new Error('El gasto o retiro debe ser negativo.');
-            await rpc('cash_movement', { p_business: business, p_amount: amount, p_method: method, p_reason: reason, p_kind: kind, p_receipt: receipt });
-        }, 'Movimiento registrado', () => ({
-            event: 'cash_movement',
-            details: { actorName: profile?.name, amount, method, kind, reason: reason.trim() },
-        })),
+        cash: (business: Business, amount: number, method: Method, reason: string, kind: MovementKind = 'ingreso', receipt: string | null = null) => {
+            let movementId: string | null = null;
+            return run(async () => {
+                if (!canCash(role, business)) throw new Error('No puedes ajustar esta caja.');
+                if (!Number.isSafeInteger(amount) || amount === 0 || reason.trim().length < 3) throw new Error('Indica un importe válido y el motivo.');
+                if (kind === 'ingreso' && amount < 0) throw new Error('El ingreso debe ser positivo.');
+                if ((kind === 'gasto' || kind === 'retiro') && amount > 0) throw new Error('El gasto o retiro debe ser negativo.');
+                const result = await rpc('cash_movement', { p_business: business, p_amount: amount, p_method: method, p_reason: reason, p_kind: kind, p_receipt: receipt });
+                movementId = typeof result === 'string' ? result : null;
+            }, 'Movimiento registrado', () => ({
+                event: 'cash_movement',
+                details: { actorName: profile?.name, movementId: movementId || undefined, amount, method, kind, reason: reason.trim() },
+            }));
+        },
         reconcileCash: (business: Business, countedCash: number, countedTransfer: number) => {
             let reconciliation: { id: string; cash_balance: number; transfer_balance: number } | null = null;
             return run(async () => {

@@ -11,7 +11,7 @@ export interface Movement { id: string; business: Business; amount: number; meth
 export interface OrderPayment { id: string; order_id: string; label: string; items: Item[]; amount: number; method: Method; receipt: string | null; created_by: string; created_at: string }
 export interface Audit { id: string; order_id: string; reason: string; created_at: string; actor: string }
 export interface AppSetting { key: string; value: string; updated_at?: string }
-export interface AppNotification { id: string; event: string; title: string; body: string; order_id: string | null; actor: string | null; actor_name: string | null; created_at: string }
+export interface AppNotification { id: string; event: string; title: string; body: string; order_id: string | null; movement_id: string | null; actor: string | null; actor_name: string | null; created_at: string }
 export interface Data { products: Product[]; orders: Order[]; shifts: Shift[]; movements: Movement[]; order_payments: OrderPayment[]; profiles: Profile[]; audits: Audit[]; settings: AppSetting[]; notifications: AppNotification[] }
 export const roles: Role[] = ['superadmin', 'administrador', 'cocinero', 'mesera', 'mesero', 'visualizador']
 export const labels: Record<Role, string> = { superadmin: 'Superadmin', administrador: 'Administrador', cocinero: 'Cocinero', mesera: 'Mesera', mesero: 'Mesero', visualizador: 'Visualizador' }
