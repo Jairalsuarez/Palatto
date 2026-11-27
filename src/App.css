@@ -798,6 +798,7 @@ input::placeholder, textarea::placeholder { color: color-mix(in oklab, var(--mut
   text-align: left;
 }
 .order-top { display: flex; align-items: center; gap: 8px; min-width: 0; }
+.order-photo-indicator { flex-shrink: 0; color: var(--copper-dark); opacity: .85; }
 .order-number {
   font-family: var(--font-display);
   font-size: 1.1rem;

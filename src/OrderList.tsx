@@ -101,6 +101,7 @@ export function OrderList({
         <li className={`order-card ${order.paid ? 'paid' : ''}`}>
         <button type="button" className="order-card-main" onClick={() => open(order)} aria-label={`Ver pedido #${number(order.number)}`}>
           <span className="order-top">
+            {receiptEntries.length > 0 && <ImageIcon size={14} className="order-photo-indicator" aria-label="Tiene foto"/>}
             <span className="order-number">#{number(order.number)}</span>
             <span className={`chip ${order.paid ? 'chip-done' : 'chip-live'}`}>
               <i aria-hidden="true"/>{order.paid ? 'Cobrado' : 'En proceso'}
