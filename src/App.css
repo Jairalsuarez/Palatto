@@ -1269,7 +1269,7 @@ dialog.native-dialog.dialog-large {
 .split-list li > div { min-width: 0; display: grid; gap: 1px; }
 .split-list li strong { font-size: .86rem; }
 .split-list li small { color: var(--muted); font-size: .74rem; line-height: 1.35; }
-.split-list li > span { display: grid; justify-items: end; gap: 1px; flex: 0 0 auto; }
+.split-list li > span { display: flex; flex-direction: column; align-items: flex-end; gap: 3px; flex: 0 0 auto; }
 .split-list li > span b { font-variant-numeric: tabular-nums; font-size: .9rem; }
 .split-list.compact { margin: 2px 0 4px; padding: 0 10px; border-radius: 12px; background: var(--surface-2); }
 .split-progress { display: flex; justify-content: space-between; gap: 10px; margin-top: 8px; padding-top: 8px; border-top: 1px dashed var(--line-strong); color: var(--muted); font-size: .78rem; font-weight: 700; }
@@ -2315,7 +2315,7 @@ dialog.native-dialog.dialog-large {
 .receipt-attachment-download:hover { border-color: var(--copper); color: var(--copper-dark); background: var(--copper-soft); }
 
 .receipt-mini-group { display: inline-flex; align-items: center; gap: 4px; margin-top: 2px; }
-.receipt-mini { display: inline-flex; align-items: center; gap: 4px; min-height: 26px; padding: 2px 7px; border: 1px solid var(--line); border-radius: 7px; background: var(--surface); color: var(--copper-dark); font-size: .68rem; font-weight: 750; cursor: pointer; }
+.receipt-mini { display: inline-flex; align-items: center; gap: 4px; min-height: 26px; padding: 2px 7px; border: 1px solid var(--line); border-radius: 7px; background: var(--surface); color: var(--copper-dark); font-size: .68rem; font-weight: 750; cursor: pointer; white-space: nowrap; flex-shrink: 0; }
 .receipt-mini.is-download { padding: 2px 6px; color: var(--ink-soft); }
 .receipt-mini:hover { border-color: var(--copper); background: var(--copper-soft); color: var(--copper-dark); }
 
@@ -2508,6 +2508,7 @@ dialog.native-dialog.dialog-large {
   font-size: .72rem;
   font-weight: 750;
   cursor: pointer;
+  white-space: nowrap;
 }
 .movement-receipt.is-download {
   width: 32px;
