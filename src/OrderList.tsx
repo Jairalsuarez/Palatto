@@ -1,22 +1,24 @@
 import { Fragment } from 'react'
-import { Banknote, ChevronRight, Timer, Users } from 'lucide-react'
+import { Banknote, ChevronRight, Download, Image as ImageIcon, Timer, Users } from 'lucide-react'
 import { useEffect, useState } from 'react'
 import { displayNumber, displayNumericText, money, orderService, orderTotal } from './lib/domain'
-import type { Order, OrderPayment } from './lib/domain'
+import type { Method, Movement, Order, OrderPayment } from './lib/domain'
+import { receiptName } from './lib/receipts'
+import type { ReceiptPhoto } from './lib/receipts'
+import { PaymentMethodTag } from './PaymentMethodTag'
 
 const number = (n: number) => displayNumber(n)
 const time = (value: string) => displayNumericText(new Date(value).toLocaleTimeString('es-EC', { hour: '2-digit', minute: '2-digit' }))
 
 function PrepClock({ order }: { order: Order }) {
-  const [, tick] = useState(0)
+  const [now, setNow] = useState(() => Date.now())
   useEffect(() => {
-    const timer = window.setInterval(() => tick(value => value + 1), 1000)
+    const timer = window.setInterval(() => setNow(Date.now()), 1000)
     return () => window.clearInterval(timer)
   }, [])
   if (!order.ready_at) return null
   const start = new Date(order.created_at).getTime()
   const end = new Date(order.ready_at).getTime()
-  const now = Date.now()
   const duration = Math.max(1, end - start)
   const remaining = end - now
   const progress = Math.max(0, Math.min(1, remaining / duration))
@@ -28,7 +30,25 @@ function PrepClock({ order }: { order: Order }) {
   </span>
 }
 
-export function OrderList({ orders, canPay, payments, open, pay }: { orders: Order[]; canPay: boolean; payments: OrderPayment[]; open: (order: Order) => void; pay: (order: Order) => void }) {
+export function OrderList({
+  orders,
+  canPay,
+  payments,
+  movements = [],
+  open,
+  pay,
+  openPhoto,
+  downloadPhoto,
+}: {
+  orders: Order[]
+  canPay: boolean
+  payments: OrderPayment[]
+  movements?: Movement[]
+  open: (order: Order) => void
+  pay: (order: Order) => void
+  openPhoto?: (photo: ReceiptPhoto) => void
+  downloadPhoto?: (path: string, filename: string) => void
+}) {
   const completed = orders.length > 0 && orders.every(order => order.paid)
   const dateKey = (order: Order) => new Intl.DateTimeFormat('en-CA', {
     timeZone: 'America/Guayaquil', year: 'numeric', month: '2-digit', day: '2-digit',
@@ -47,6 +67,35 @@ export function OrderList({ orders, canPay, payments, open, pay }: { orders: Ord
       const splitPaid = split.reduce((sum, payment) => sum + payment.amount, 0)
       const orderValue = orderTotal(order)
       const remaining = Math.max(0, orderValue - splitPaid)
+      const movementMethods = movements
+        .filter(movement => movement.order_id === order.id && movement.kind === 'cobro')
+        .map(movement => movement.method)
+      const methods = Array.from(new Set<Method>(order.paid
+        ? (split.length
+          ? split.map(payment => payment.method)
+          : order.method
+            ? [order.method]
+            : movementMethods)
+        : []))
+      const receiptEntries: ReceiptPhoto[] = []
+      if (order.receipt) {
+        receiptEntries.push({
+          path: order.receipt,
+          title: `Pedido #${number(order.number)}`,
+          subtitle: `${order.customer} · ${money(orderValue)}`,
+          name: receiptName(order.receipt, `comprobante-pedido-${order.number}`),
+        })
+      }
+      for (const payment of split) {
+        if (!payment.receipt) continue
+        receiptEntries.push({
+          path: payment.receipt,
+          title: `Pedido #${number(order.number)} · ${payment.label}`,
+          subtitle: `${money(payment.amount)} · Transferencia`,
+          name: receiptName(payment.receipt, `comprobante-pedido-${order.number}-${payment.label}`),
+        })
+      }
+      const singlePhoto = receiptEntries.length === 1 ? receiptEntries[0] : null
       return <Fragment key={order.id}>
         {separator && <li className="order-date-separator"><span>{dateLabel(order)}</span></li>}
         <li className={`order-card ${order.paid ? 'paid' : ''}`}>
@@ -61,6 +110,10 @@ export function OrderList({ orders, canPay, payments, open, pay }: { orders: Ord
           <span className="order-meta">
             {orderService(order)} · {time(order.created_at)} · {displayNumber(items)} artículo{items === 1 ? '' : 's'}{!order.paid && order.status === 'completado' ? ' · Listo para entregar' : ''}
           </span>
+          {order.paid && (methods.length > 0 || receiptEntries.length > 0) && <span className="order-payment-line">
+            {methods.map(method => <PaymentMethodTag key={method} method={method}/>)}
+            {receiptEntries.length > 0 && <span className="order-photo-flag"><ImageIcon size={13} aria-hidden="true"/>{receiptEntries.length > 1 ? `${displayNumber(receiptEntries.length)} fotos` : 'Con foto'}</span>}
+          </span>}
           {!order.paid && order.ready_at && <span className="order-prep-line"><span>Listo {time(order.ready_at)}{order.prep_minutes ? ` · estimado ${order.prep_minutes} min` : ''}</span><PrepClock order={order}/></span>}
           {order.prep_requested && <span className="order-request-status">Esperando respuesta de cocina · acciones bloqueadas</span>}
           {order.prep_rejected && <span className="order-request-rejected">Cocina rechazó el pedido. No se cobrará ni preparará.</span>}
@@ -78,9 +131,17 @@ export function OrderList({ orders, canPay, payments, open, pay }: { orders: Ord
             ? <button type="button" className="btn btn-money btn-sm" onClick={() => pay(order)}>
                 <Banknote size={17} aria-hidden="true"/>{split.length ? 'Cobrar resto' : 'Cobrar'}
               </button>
-            : <button type="button" className="btn btn-ghost btn-sm" onClick={() => open(order)}>
-                Ver<ChevronRight size={16} aria-hidden="true"/>
-              </button>}
+            : <div className="order-foot-actions">
+                {singlePhoto && openPhoto && <button type="button" className="order-photo-btn" onClick={() => openPhoto(singlePhoto)} aria-label={`Ver foto del pedido #${number(order.number)}`}>
+                  <ImageIcon size={14} aria-hidden="true"/><span>Foto</span>
+                </button>}
+                {singlePhoto && downloadPhoto && <button type="button" className="order-photo-btn is-icon" onClick={() => downloadPhoto(singlePhoto.path, singlePhoto.name)} aria-label={`Descargar foto del pedido #${number(order.number)}`} title="Descargar foto">
+                  <Download size={14} aria-hidden="true"/>
+                </button>}
+                <button type="button" className="btn btn-ghost btn-sm" onClick={() => open(order)}>
+                  Ver<ChevronRight size={16} aria-hidden="true"/>
+                </button>
+              </div>}
         </div>
         </li>
       </Fragment>

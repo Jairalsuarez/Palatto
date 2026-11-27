@@ -1,6 +1,8 @@
-import { useMemo, useState } from 'react'
-import { Check, Plus, Receipt } from 'lucide-react'
+import { useEffect, useMemo, useState } from 'react'
+import { Check, Download, Image as ImageIcon, Plus, Receipt } from 'lucide-react'
 import { Modal } from './Modal'
+import { receiptName } from './lib/receipts'
+import type { ReceiptPhoto } from './lib/receipts'
 import type { FormEvent } from 'react'
 import type { Restaurant } from './lib/useRestaurant'
 import { canWrite, cents, displayNumber, displayNumericText, money } from './lib/domain'
@@ -45,12 +47,11 @@ function AddSupplyExpense({ app, supplies, onSave, close }: { app: Restaurant; s
   </Modal>
 }
 
-export function Inventory({ app }: { app: Restaurant }) {
+export function Inventory({ app, openPhoto }: { app: Restaurant; openPhoto: (photo: ReceiptPhoto) => void }) {
   const inventory = useInventory(app.profile, app.role)
   const [adding, setAdding] = useState(false)
   const [paymentMethod, setPaymentMethod] = useState<Record<string, 'efectivo' | 'transferencia'>>({})
   const [confirmPending, setConfirmPending] = useState<string | null>(null)
-  const [viewReceipt, setViewReceipt] = useState<string | null>(null)
   const canEdit = canWrite(app.role)
   const supplyById = useMemo(() => new Map(inventory.supplies.map(supply => [supply.id, supply])), [inventory.supplies])
   const paid = inventory.purchases.filter(item => item.paid)
@@ -58,6 +59,13 @@ export function Inventory({ app }: { app: Restaurant }) {
   const paidTotal = paid.reduce((sum, item) => sum + item.total_amount, 0)
   const pendingTotal = pending.reduce((sum, item) => sum + item.total_amount, 0)
   const paidBySupply = paid.reduce((totals, item) => totals.set(item.supply_id, (totals.get(item.supply_id) || 0) + item.total_amount), new Map<string, number>())
+
+  const { prefetchReceipts } = app
+  useEffect(() => {
+    const paths = inventory.purchases.map(item => item.receipt).filter((value): value is string => Boolean(value))
+    if (paths.length) void prefetchReceipts(paths)
+  }, [inventory.purchases, prefetchReceipts])
+
   return <>
     <div className="page-heading"><div><h1>Insumos</h1><p>Registra cada compra y marca si ya la pagaste. Los insumos no descuentan la caja: si sale dinero, regístralo como gasto o retiro.</p></div>{canEdit && <button className="btn btn-primary" onClick={() => setAdding(true)}><Plus size={18}/>Agregar insumo</button>}</div>
     {inventory.error && <div className="alert alert-error" role="alert">{inventory.error}</div>}
@@ -70,12 +78,19 @@ export function Inventory({ app }: { app: Restaurant }) {
     <section className="simple-supply-list" aria-label="Lista de insumos">
       {!inventory.purchases.length ? <div className="empty"><h3>Aún no hay insumos</h3><p>Agrega uno con su nombre y valor.</p></div> : inventory.purchases.map(item => {
         const name = supplyById.get(item.supply_id)?.name || 'Insumo'
+        const fileName = item.receipt ? receiptName(item.receipt, `factura-${name}`) : ''
         return <article className="simple-supply-row" key={item.id}>
           <div className="simple-supply-info"><strong>{name}</strong><small>{displayNumericText(new Date(item.created_at).toLocaleDateString('es-EC', { day: 'numeric', month: 'short', year: 'numeric' }))}</small></div>
           <strong className="simple-supply-amount">{money(item.total_amount)}</strong>
-          {item.receipt && <button type="button" className="movement-receipt" onClick={async () => {
-            try { setViewReceipt(await app.receiptUrl(item.receipt!)) } catch (error) { app.setError((error as Error).message) }
-          }}>Factura</button>}
+          {item.receipt && <div className="movement-receipt-group">
+            <button type="button" className="movement-receipt" onClick={() => openPhoto({
+              path: item.receipt!,
+              title: `Factura · ${name}`,
+              subtitle: `Insumo · ${money(item.total_amount)}`,
+              name: fileName,
+            })} aria-label={`Ver factura de ${name}`}><ImageIcon size={14}/>Factura</button>
+            <button type="button" className="movement-receipt is-download" onClick={() => void app.downloadReceipt(item.receipt!, fileName)} aria-label={`Descargar factura de ${name}`} title="Descargar foto"><Download size={14}/></button>
+          </div>}
           <div className="simple-supply-status"><span className={item.paid ? 'purchase-paid' : 'purchase-pending'}>{item.paid ? 'Pagado' : 'Pendiente'}</span>
             {canEdit && (item.paid
               ? <button className="app-switch is-on" type="button" disabled={inventory.busy} role="switch" aria-checked="true" aria-label={`Cambiar ${name} a pendiente`} onClick={() => setConfirmPending(item.id)}><span/></button>
@@ -87,8 +102,6 @@ export function Inventory({ app }: { app: Restaurant }) {
     </section>
     {paidBySupply.size > 0 && <section className="simple-spend-breakdown"><h2>Gastado por insumo</h2>{[...paidBySupply.entries()].sort((a,b)=>b[1]-a[1]).map(([id,total])=><div key={id}><span>{supplyById.get(id)?.name || 'Insumo'}</span><strong>{money(total)}</strong></div>)}</section>}
     {adding && <AddSupplyExpense app={app} supplies={inventory.supplies} onSave={inventory.registerPurchase} close={() => setAdding(false)}/>}
-    {viewReceipt && <Modal title="Factura de la compra" close={() => setViewReceipt(null)}><img className="receipt-image" src={viewReceipt} alt="Factura de la compra"/></Modal>}
     {confirmPending && <Modal title="¿Cambiar a pendiente?" close={() => setConfirmPending(null)}><div className="form-stack"><p>La compra volverá a quedar pendiente. La caja no cambia porque los insumos no generan movimientos automáticos. ¿Estás de acuerdo?</p><div className="form-actions"><button className="btn btn-ghost" onClick={() => setConfirmPending(null)}>Cancelar</button><button className="btn btn-primary" disabled={inventory.busy} onClick={async () => { const ok = await inventory.updatePurchase(confirmPending, 'unpaid'); if (ok) setConfirmPending(null) }}><Check size={17}/>Sí, dejar pendiente</button></div></div></Modal>}
   </>
 }
-

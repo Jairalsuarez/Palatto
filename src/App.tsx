@@ -3,7 +3,7 @@ import type { FormEvent, ReactNode } from 'react'
 import {
   ArrowDownLeft, ArrowRight, ArrowUpRight, Banknote, BarChart3, Bell, BookOpen, Check, CheckCheck,
   ChevronLeft, ClipboardList, Coffee, CreditCard, Download, Flame, History, KeyRound, LogOut, Minus, PackageOpen,
-  Eye, EyeOff, Pencil, Plus, Power, Receipt, RefreshCw, Search, ShieldCheck, ShoppingBag, Trash2, Users, X, Volume2, VolumeX, WalletCards,
+  Eye, EyeOff, Pencil, Plus, Power, Receipt, RefreshCw, Search, ShieldCheck, ShoppingBag, Trash2, Users, X, Volume2, VolumeX, WalletCards, Image as ImageIcon,
 } from 'lucide-react'
 import { Modal } from './Modal'
 import { useRestaurant } from './lib/useRestaurant'
@@ -14,10 +14,15 @@ import { analyze, dayKey, paymentTimes } from './lib/analytics'
 import { OrderList } from './OrderList'
 import { Reports } from './Reports'
 import { Inventory } from './Inventory'
+import { ReceiptPage, ReceiptPreviewThumb } from './ReceiptViewer'
+import { receiptName } from './lib/receipts'
+import type { ReceiptPhoto } from './lib/receipts'
+import { PichinchaMark } from './PichinchaMark'
+import { PaymentMethodTag } from './PaymentMethodTag'
 import './App.css'
 
-type Page = 'pedidos' | 'nuevo' | 'cajas' | 'menu' | 'equipo' | 'reportes' | 'insumos' | 'cuenta' | 'resumen' | 'bebidas' | 'notificaciones'
-type Route = { page: Page; cashBusiness: Business | null }
+type Page = 'pedidos' | 'nuevo' | 'cajas' | 'menu' | 'equipo' | 'reportes' | 'insumos' | 'cuenta' | 'resumen' | 'bebidas' | 'notificaciones' | 'foto'
+type Route = { page: Page; cashBusiness: Business | null; photo?: ReceiptPhoto | null }
 
 const number = (n: number) => displayNumber(n)
 const movementKindLabel = (kind: MovementKind) => ({ ingreso: 'Ingreso', gasto: 'Gasto', retiro: 'Retiro', cobro: 'Cobro', correccion: 'Corrección', transferencia: 'Transferencia' }[kind])
@@ -103,6 +108,7 @@ export default function App() {
   const [page, setPage] = useState<Page>('pedidos')
   const [editing, setEditing] = useState<Order | undefined>()
   const [cashBusiness, setCashBusiness] = useState<Business | null>(null)
+  const [activePhoto, setActivePhoto] = useState<ReceiptPhoto | null>(null)
   const [detail, setDetail] = useState<string | null>(null)
   const [payRequest, setPayRequest] = useState<string | Order | null>(null)
   const [deferredKitchenPay, setDeferredKitchenPay] = useState<string | null>(null)
@@ -373,6 +379,7 @@ export default function App() {
         setHistory(current => current.slice(0, -1))
         setPage(previous.page)
         setCashBusiness(previous.page === 'cajas' ? (previous.cashBusiness ?? 'palatto') : null)
+        setActivePhoto(previous.page === 'foto' ? (previous.photo ?? null) : null)
         setEditing(undefined)
         setPayRequest(null)
         app.setError('')
@@ -383,6 +390,7 @@ export default function App() {
       if (wantsHome) {
         setPage('pedidos')
         setCashBusiness(null)
+        setActivePhoto(null)
         setEditing(undefined)
         setDetail(null)
         setPayRequest(null)
@@ -424,13 +432,23 @@ export default function App() {
   ] as const
 
   function pushCurrent() {
-    setHistory(current => [...current, { page, cashBusiness }])
+    setHistory(current => [...current, { page, cashBusiness, photo: activePhoto }])
     window.history.pushState({ palatto: true }, '', window.location.href)
   }
   function go(next: Page, cash: Business | null = next === 'cajas' ? 'palatto' : null) {
     if (page !== next || cashBusiness !== cash) pushCurrent()
     setPage(next)
     setCashBusiness(cash)
+    setActivePhoto(null)
+    setEditing(undefined)
+    setPayRequest(null)
+    app.setError('')
+  }
+  function openPhoto(photo: ReceiptPhoto) {
+    pushCurrent()
+    setActivePhoto(photo)
+    setPage('foto')
+    setCashBusiness(null)
     setEditing(undefined)
     setPayRequest(null)
     app.setError('')
@@ -446,6 +464,7 @@ export default function App() {
     setEditing(order)
     setPage('nuevo')
     setCashBusiness(null)
+    setActivePhoto(null)
     app.setError('')
   }
   function finishOrder() {
@@ -454,6 +473,7 @@ export default function App() {
     setPayRequest(null)
     setPage('pedidos')
     setCashBusiness(null)
+    setActivePhoto(null)
     setHistory([])
     app.setError('')
   }
@@ -462,6 +482,7 @@ export default function App() {
     setDetail(null)
     setPage('pedidos')
     setCashBusiness(null)
+    setActivePhoto(null)
     setHistory([])
     setPayRequest(order)
     app.setError('')
@@ -520,18 +541,19 @@ export default function App() {
       </div>}
 
       {page === 'pedidos' && <>
-        <Home app={app} detail={detail} setDetail={setDetail} payRequest={payRequest} payHandled={() => setPayRequest(null)} onNew={() => navigate('nuevo')} onDrinks={() => navigate('bebidas')} onSummary={() => navigate('resumen')} onCash={business => go('cajas', business)} onEdit={edit}/>
+        <Home app={app} detail={detail} setDetail={setDetail} payRequest={payRequest} payHandled={() => setPayRequest(null)} onNew={() => navigate('nuevo')} onDrinks={() => navigate('bebidas')} onSummary={() => navigate('resumen')} onCash={business => go('cajas', business)} onEdit={edit} openPhoto={openPhoto}/>
 
       </>}
-      {page === 'resumen' && <DailySummary app={app} onCash={business => go('cajas', business)} onOrder={openOrder}/>}
+      {page === 'resumen' && <DailySummary app={app} onCash={business => go('cajas', business)} onOrder={openOrder} openPhoto={openPhoto}/>}
       {page === 'bebidas' && <DrinksSalesPage app={app} back={back}/>}
       {page === 'notificaciones' && <Notifications app={app} back={back} onOrder={openOrder}/>}
       {page === 'reportes' && <Reports app={app}/>}
-      {page === 'insumos' && <Inventory app={app}/>}
+      {page === 'insumos' && <Inventory app={app} openPhoto={openPhoto}/>}
       {page === 'nuevo' && canTakeOrders(app.role) && <OrderEditor key={editing?.id || 'new'} app={app} order={editing} back={back} done={finishOrder} pay={paySaved} waitForKitchen={waitForKitchen}/>}
       {page === 'cajas' && cashBusiness
-        ? <Cash app={app} back={back} onOrder={openOrder}/>
+        ? <Cash app={app} back={back} onOrder={openOrder} openPhoto={openPhoto}/>
         : null}
+      {page === 'foto' && activePhoto && <ReceiptPage key={activePhoto.path} app={app} photo={activePhoto} back={back}/>}
       {page === 'menu' && <Menu app={app}/>}
       {page === 'equipo' && app.role === 'superadmin' && <Team app={app}/>}
       {page === 'cuenta' && <AccountPage app={app} installPrompt={installPrompt} installed={installed} navigate={navigate} onInstall={async () => {
@@ -548,7 +570,7 @@ export default function App() {
       }}/>}
     </main>
 
-    {page !== 'nuevo' && page !== 'cuenta' && <nav className="tabbar" aria-label="Navegación principal">
+    {page !== 'nuevo' && page !== 'cuenta' && page !== 'foto' && <nav className="tabbar" aria-label="Navegación principal">
       {tabs.map(tab => <button key={tab.id}
         className={`tab ${page === tab.id || (page === 'resumen' && tab.id === 'pedidos') ? 'active' : ''} ${tab.id === 'nuevo' ? 'tab-new' : ''}`}
         aria-current={page === tab.id || (page === 'resumen' && tab.id === 'pedidos') ? 'page' : undefined}
@@ -577,11 +599,10 @@ export default function App() {
 
 /* ---------------------------------------------------------------- Inicio */
 
-function Home({ app, detail, setDetail, payRequest, payHandled, onNew, onDrinks, onSummary, onCash, onEdit }: { app: Restaurant; detail: string | null; setDetail: (id: string | null) => void; payRequest: string | Order | null; payHandled: () => void; onNew: () => void; onDrinks: () => void; onSummary: () => void; onCash: (business: Business) => void; onEdit: (order: Order) => void }) {
+function Home({ app, detail, setDetail, payRequest, payHandled, onNew, onDrinks, onSummary, onCash, onEdit, openPhoto }: { app: Restaurant; detail: string | null; setDetail: (id: string | null) => void; payRequest: string | Order | null; payHandled: () => void; onNew: () => void; onDrinks: () => void; onSummary: () => void; onCash: (business: Business) => void; onEdit: (order: Order) => void; openPhoto: (photo: ReceiptPhoto) => void }) {
   const [filter, setFilter] = useState<'activos' | 'completados' | 'todos'>('activos')
   const [search, setSearch] = useState('')
   const [payment, setPayment] = useState<{ order: Order; split: boolean } | null>(null)
-  const [receipt, setReceipt] = useState<string | null>(null)
 
   const orders = app.data.orders.filter(order => {
     const matchesFilter = filter === 'todos' || (filter === 'activos' ? !order.paid : order.paid)
@@ -592,6 +613,18 @@ function Home({ app, detail, setDetail, payRequest, payHandled, onNew, onDrinks,
   const latestPaymentOrder = app.data.orders.find(order => order.id === payment?.order.id)
   const paymentOrder = payment && (!latestPaymentOrder || latestPaymentOrder.version < payment.order.version) ? payment.order : latestPaymentOrder
   const detailOrder = app.data.orders.find(order => order.id === detail)
+
+  const { prefetchReceipts } = app
+  useEffect(() => {
+    const orderIds = new Set(orders.slice(0, 20).map(order => order.id))
+    const paths = [
+      ...orders.slice(0, 20).map(order => order.receipt).filter((value): value is string => Boolean(value)),
+      ...app.data.order_payments
+        .filter(item => orderIds.has(item.order_id) && item.receipt)
+        .map(item => item.receipt!),
+    ]
+    if (paths.length) void prefetchReceipts(paths)
+  }, [orders, app.data.order_payments, prefetchReceipts])
 
   useEffect(() => {
     if (!payRequest) return
@@ -625,22 +658,21 @@ function Home({ app, detail, setDetail, payRequest, payHandled, onNew, onDrinks,
           action={!search && filter !== 'completados' && canTakeOrders(app.role) ? <button className="btn btn-primary" onClick={onNew}><Plus size={18}/>Tomar un pedido</button> : undefined}>
           {search ? 'Prueba con otro nombre o número.' : 'Cuando alguien pida algo, aparecerá aquí.'}
         </Empty>
-      : <OrderList orders={orders} canPay={canTakeOrders(app.role)} payments={app.data.order_payments} open={order => { app.setError(''); setDetail(order.id) }} pay={order => { app.setError(''); setPayment({ order, split: false }) }}/>}
+      : <OrderList orders={orders} canPay={canTakeOrders(app.role)} payments={app.data.order_payments} movements={app.data.movements} open={order => { app.setError(''); setDetail(order.id) }} pay={order => { app.setError(''); setPayment({ order, split: false }) }} openPhoto={openPhoto} downloadPhoto={(path, filename) => void app.downloadReceipt(path, filename)}/>}
 
     {detailOrder && <OrderDetail app={app} order={detailOrder} close={() => setDetail(null)}
       pay={() => { setDetail(null); setPayment({ order: detailOrder, split: false }) }}
       split={() => { setDetail(null); setPayment({ order: detailOrder, split: true }) }}
       edit={() => onEdit(detailOrder)}
-      showReceipt={async path => {
-        try { setReceipt(await app.receiptUrl(path)) } catch (error) { app.setError((error as Error).message) }
-      }}/>}
+      showReceipt={(path, title, fileName) => openPhoto({
+        path,
+        title: title || `Pedido #${number(detailOrder.number)}`,
+        subtitle: `${detailOrder.customer} · ${money(orderTotal(detailOrder))}`,
+        name: fileName || receiptName(path, `comprobante-pedido-${detailOrder.number}`),
+      })}/>}
 
     {paymentOrder && <Payment key={`${paymentOrder.id}-${paymentOrder.version}`} app={app} order={paymentOrder} initialSplit={payment?.split || false} close={() => setPayment(null)}
       view={() => { setPayment(null); setDetail(paymentOrder.id) }}/>}
-
-    {receipt && <Modal title="Comprobante de transferencia" close={() => setReceipt(null)}>
-      <img className="receipt-image" src={receipt} alt="Comprobante del pago"/>
-    </Modal>}
   </>
 }
 
@@ -811,13 +843,6 @@ function DrinksSalesPage({ app, back }: { app: Restaurant; back: () => void }) {
   </>
 }
 
-function PichinchaMark() {
-  return <svg className="pichincha-mark" viewBox="0 0 43.69 44" role="img" aria-label="Banco Pichincha">
-    <path fill="#fd0" d="M43.69.27V44H14.63A14.63 14.63 0 0 1 0 29.33V.27h43.69Z"/>
-    <path fill="#1b2d54" d="M36.42 22.08V7.54H21.84v6.57h8v7.97h6.58Z"/>
-  </svg>
-}
-
 function SalesHero({ app, onDrinks, onSummary, onCash }: { app: Restaurant; onDrinks: () => void; onSummary: () => void; onCash: (business: Business) => void }) {
   const mainCashMovements = app.data.movements.filter(movement => movement.business === 'palatto')
   const balance = mainCashMovements.reduce((sum, movement) => sum + movement.amount, 0)
@@ -844,13 +869,20 @@ function SalesHero({ app, onDrinks, onSummary, onCash }: { app: Restaurant; onDr
   </section>
 }
 
-function OrderDetail({ app, order, close, pay, split, edit, showReceipt }: { app: Restaurant; order: Order; close: () => void; pay: () => void; split: () => void; edit: () => void; showReceipt: (path: string) => void }) {
+function OrderDetail({ app, order, close, pay, split, edit, showReceipt }: { app: Restaurant; order: Order; close: () => void; pay: () => void; split: () => void; edit: () => void; showReceipt: (path: string, title?: string, fileName?: string) => void }) {
   const [confirming, setConfirming] = useState(false)
   const [reason, setReason] = useState('Pedido cancelado')
   const owed = orderTotal(order)
   const payments = app.data.order_payments.filter(payment => payment.order_id === order.id).sort((a, b) => a.created_at.localeCompare(b.created_at))
   const paid = payments.reduce((sum, payment) => sum + payment.amount, 0)
   const remaining = Math.max(0, owed - paid)
+  const paidMethods = Array.from(new Set(payments.length ? payments.map(payment => payment.method) : order.method ? [order.method] : []))
+
+  const { prefetchReceipts } = app
+  useEffect(() => {
+    const paths = [order.receipt, ...payments.map(payment => payment.receipt)].filter((value): value is string => Boolean(value))
+    if (paths.length) void prefetchReceipts(paths)
+  }, [order.receipt, payments, prefetchReceipts])
   return <Modal title={`Pedido #${number(order.number)}`} close={close} page>
     <div className="dialog-body">
     {confirming
@@ -903,10 +935,20 @@ function OrderDetail({ app, order, close, pay, split, edit, showReceipt }: { app
           {payments.length > 0 && <section className="split-summary">
             <div className="section-top"><h3>Cuenta dividida</h3><span className="pill">{displayNumber(payments.length)} {payments.length === 1 ? 'pago' : 'pagos'}</span></div>
             <ul className="split-list">
-              {payments.map(payment => <li key={payment.id}>
-                <div><strong>{payment.label}</strong><small>{payment.items.map(item => `${displayNumber(item.quantity)} × ${item.name}`).join(' · ')}</small></div>
-                <span><b>{money(payment.amount)}</b><small>{payment.method === 'efectivo' ? 'Efectivo' : 'Transferencia'}</small></span>
-              </li>)}
+              {payments.map(payment => {
+                const paymentFileName = payment.receipt ? receiptName(payment.receipt, `comprobante-pedido-${order.number}-${payment.label}`) : ''
+                return <li key={payment.id}>
+                  <div><strong>{payment.label}</strong><small>{payment.items.map(item => `${displayNumber(item.quantity)} × ${item.name}`).join(' · ')}</small></div>
+                  <span>
+                    <b>{money(payment.amount)}</b>
+                    <PaymentMethodTag method={payment.method}/>
+                    {payment.receipt && <div className="receipt-mini-group">
+                      <button type="button" className="receipt-mini" onClick={() => showReceipt(payment.receipt!, `Pedido #${number(order.number)} · ${payment.label}`, paymentFileName)}><ImageIcon size={13}/>Ver foto</button>
+                      <button type="button" className="receipt-mini is-download" onClick={() => void app.downloadReceipt(payment.receipt!, paymentFileName)} aria-label={`Descargar comprobante de ${payment.label}`} title="Descargar foto"><Download size={13}/></button>
+                    </div>}
+                  </span>
+                </li>
+              })}
             </ul>
             {!order.paid && <div className="split-progress">
               <span>Cobrado <b>{money(paid)}</b></span>
@@ -914,10 +956,24 @@ function OrderDetail({ app, order, close, pay, split, edit, showReceipt }: { app
             </div>}
           </section>}
 
-          {order.paid && (payments.length
-            ? <p className="detail-paid"><Check size={16}/> Cobrado en {displayNumber(payments.length)} {payments.length === 1 ? 'pago' : 'pagos'}</p>
-            : <p className="detail-paid"><Check size={16}/> Cobrado con {order.method === 'efectivo' ? 'efectivo' : 'transferencia'}</p>)}
-          {order.receipt && <button className="btn btn-ghost btn-block btn-sm" onClick={() => showReceipt(order.receipt!)}><CreditCard size={16}/>Ver comprobante</button>}
+          {order.paid && <p className="detail-paid">
+            <Check size={16}/>
+            <span>{payments.length ? `Cobrado en ${displayNumber(payments.length)} ${payments.length === 1 ? 'pago' : 'pagos'}` : 'Cobrado con'}</span>
+            {paidMethods.map(method => <PaymentMethodTag key={method} method={method}/>)}
+          </p>}
+          {order.receipt && (() => {
+            const fileName = receiptName(order.receipt, `comprobante-pedido-${order.number}`)
+            return <div className="receipt-attachment-card">
+              <button type="button" className="receipt-attachment" onClick={() => showReceipt(order.receipt!, `Comprobante del pedido #${number(order.number)}`, fileName)}>
+                <ReceiptPreviewThumb app={app} path={order.receipt} alt={`Comprobante del pedido #${number(order.number)}`}/>
+                <span className="receipt-attachment-copy"><strong>Comprobante de pago</strong><small>Toca para abrir en otra página</small></span>
+                <ArrowRight size={16}/>
+              </button>
+              <button type="button" className="receipt-attachment-download" onClick={() => void app.downloadReceipt(order.receipt!, fileName)} aria-label="Descargar foto del comprobante" title="Descargar foto">
+                <Download size={16}/><span>Descargar</span>
+              </button>
+            </div>
+          })()}
 
           <div className="detail-actions">
             {!order.paid && !order.prep_requested && !order.prep_rejected && canTakeOrders(app.role) && (payments.length
@@ -1398,13 +1454,12 @@ function ProductPicker({ app, selected, add }: { app: Restaurant; selected: Item
 
 /* ----------------------------------------------------------------- Cajas */
 
-function Cash({ app, back, business = 'palatto', onOrder }: { app: Restaurant; back: () => void; business?: Business; onOrder: (id: string) => void }) {
+function Cash({ app, back, business = 'palatto', onOrder, openPhoto }: { app: Restaurant; back: () => void; business?: Business; onOrder: (id: string) => void; openPhoto: (photo: ReceiptPhoto) => void }) {
   const [form, setForm] = useState<'ingreso' | 'gasto' | 'retiro' | null>(null)
   const [method, setMethod] = useState<Method>('efectivo')
   const [amount, setAmount] = useState('')
   const [reason, setReason] = useState('')
   const [receipt, setReceipt] = useState<string | null>(null)
-  const [viewReceipt, setViewReceipt] = useState<string | null>(null)
   const [selected, setSelected] = useState<Movement | null>(null)
   const [confirmReconcile, setConfirmReconcile] = useState(false)
   const [countedCash, setCountedCash] = useState('')
@@ -1413,6 +1468,12 @@ function Cash({ app, back, business = 'palatto', onOrder }: { app: Restaurant; b
   const cashOnly = business === 'carreta'
   const movements = app.data.movements.filter(movement => movement.business === business && (!cashOnly || movement.method === 'efectivo')).sort((a, b) => b.created_at.localeCompare(a.created_at))
   const balance = (method: Method) => movements.filter(movement => movement.method === method).reduce((sum, movement) => sum + movement.amount, 0)
+
+  const { prefetchReceipts } = app
+  useEffect(() => {
+    const paths = movements.map(movement => movement.receipt).filter((value): value is string => Boolean(value)).slice(0, 20)
+    if (paths.length) void prefetchReceipts(paths)
+  }, [movements, prefetchReceipts])
 
   function closeForm() {
     setForm(null)
@@ -1426,8 +1487,13 @@ function Cash({ app, back, business = 'palatto', onOrder }: { app: Restaurant; b
     setMethod('efectivo')
   }
 
-  async function showReceipt(path: string) {
-    try { setViewReceipt(await app.receiptUrl(path)) } catch (error) { app.setError((error as Error).message) }
+  function movementPhoto(movement: Movement): ReceiptPhoto {
+    return {
+      path: movement.receipt!,
+      title: movement.reason,
+      subtitle: `${movementKindLabel(movement.kind)} · ${money(Math.abs(movement.amount))}`,
+      name: receiptName(movement.receipt!, `factura-${movement.reason}`),
+    }
   }
 
   function openMovement(movement: Movement) {
@@ -1470,14 +1536,20 @@ function Cash({ app, back, business = 'palatto', onOrder }: { app: Restaurant; b
       {!movements.length
         ? <p className="empty-line">Aquí verás cada ingreso, gasto, retiro y cobro.</p>
         : <ul className="movement-list">
-            {movements.map(movement => <li className="movement" key={movement.id}>
-              <button type="button" className="movement-open" onClick={() => openMovement(movement)} aria-label={`Ver detalle de ${movement.reason}`}>
-                <span className={`movement-icon ${movement.amount < 0 ? 'out' : ''}`}>{movement.amount < 0 ? <ArrowUpRight size={18}/> : <ArrowRight size={18}/>}</span>
-                <div><strong>{movement.reason}</strong><small>{movementKindLabel(movement.kind)} · {dateTime(movement.created_at)}{cashOnly ? ' · Efectivo' : ` · ${movement.method === 'efectivo' ? 'Efectivo' : 'Transferencia'}`}</small></div>
-                <b className={movement.amount < 0 ? 'negative' : 'positive'}>{movement.amount > 0 ? '+' : '−'}{money(Math.abs(movement.amount))}</b>
-              </button>
-              {movement.receipt && <button type="button" className="movement-receipt" onClick={() => void showReceipt(movement.receipt!)}>Factura</button>}
-            </li>)}
+            {movements.map(movement => {
+              const photo = movement.receipt ? movementPhoto(movement) : null
+              return <li className={`movement ${photo ? 'has-receipt' : ''}`} key={movement.id}>
+                <button type="button" className="movement-open" onClick={() => openMovement(movement)} aria-label={`Ver detalle de ${movement.reason}`}>
+                  <span className={`movement-icon ${movement.amount < 0 ? 'out' : ''}`}>{movement.amount < 0 ? <ArrowUpRight size={18}/> : <ArrowRight size={18}/>}</span>
+                  <div><strong>{movement.reason}</strong><small>{movementKindLabel(movement.kind)} · {dateTime(movement.created_at)}{cashOnly ? ' · Efectivo' : ` · ${movement.method === 'efectivo' ? 'Efectivo' : 'Transferencia'}`}</small></div>
+                  <b className={movement.amount < 0 ? 'negative' : 'positive'}>{movement.amount > 0 ? '+' : '−'}{money(Math.abs(movement.amount))}</b>
+                </button>
+                {photo && <div className="movement-receipt-group">
+                  <button type="button" className="movement-receipt" onClick={() => openPhoto(photo)} aria-label={`Ver factura de ${movement.reason}`}><ImageIcon size={14}/>Ver foto</button>
+                  <button type="button" className="movement-receipt is-download" onClick={() => void app.downloadReceipt(photo.path, photo.name)} aria-label={`Descargar foto de ${movement.reason}`} title="Descargar foto"><Download size={14}/></button>
+                </div>}
+              </li>
+            })}
           </ul>}
     </section>
 
@@ -1528,17 +1600,25 @@ function Cash({ app, back, business = 'palatto', onOrder }: { app: Restaurant; b
       </div>
     </Modal>}
 
-    {selected && <MovementDetail app={app} movement={selected} close={() => setSelected(null)} onOrder={onOrder} onReceipt={path => { setSelected(null); void showReceipt(path) }}/>}
-
-    {viewReceipt && <Modal title="Factura del gasto" close={() => setViewReceipt(null)}>
-      <img className="receipt-image" src={viewReceipt} alt="Factura del movimiento"/>
-    </Modal>}
+    {selected && <MovementDetail app={app} movement={selected} close={() => setSelected(null)} onOrder={onOrder} onReceipt={photo => { setSelected(null); openPhoto(photo) }}/>}
   </>
 }
 
-function MovementDetail({ app, movement, close, onOrder, onReceipt }: { app: Restaurant; movement: Movement; close: () => void; onOrder: (id: string) => void; onReceipt: (path: string) => void }) {
+function MovementDetail({ app, movement, close, onOrder, onReceipt }: { app: Restaurant; movement: Movement; close: () => void; onOrder: (id: string) => void; onReceipt: (photo: ReceiptPhoto) => void }) {
   const order = movement.order_id ? app.data.orders.find(item => item.id === movement.order_id) : undefined
   const actor = movement.actor ? app.data.profiles.find(person => person.id === movement.actor) : undefined
+  const { prefetchReceipts } = app
+  useEffect(() => {
+    if (movement.receipt) void prefetchReceipts([movement.receipt])
+  }, [movement.receipt, prefetchReceipts])
+  const photo: ReceiptPhoto | null = movement.receipt
+    ? {
+        path: movement.receipt,
+        title: movement.reason,
+        subtitle: `${movementKindLabel(movement.kind)} · ${money(Math.abs(movement.amount))}`,
+        name: receiptName(movement.receipt, `factura-${movement.reason}`),
+      }
+    : null
   return <Modal title={movementKindLabel(movement.kind)} close={close} page>
     <div className="movement-detail">
       <div className={`movement-detail-total ${movement.amount < 0 ? 'negative' : 'positive'}`}>
@@ -1547,13 +1627,22 @@ function MovementDetail({ app, movement, close, onOrder, onReceipt }: { app: Res
       </div>
       <dl className="movement-detail-list">
         <div><dt>Motivo</dt><dd>{movement.reason}</dd></div>
-        <div><dt>Medio de pago</dt><dd>{movement.method === 'efectivo' ? 'Efectivo' : 'Transferencia'}</dd></div>
+        <div><dt>Medio de pago</dt><dd><PaymentMethodTag method={movement.method}/></dd></div>
         <div><dt>Fecha</dt><dd>{dateTime(movement.created_at)}</dd></div>
         {actor && <div><dt>Registrado por</dt><dd>{actor.name}</dd></div>}
         {order && <div><dt>Pedido</dt><dd>#{number(order.number)} · {order.customer}</dd></div>}
       </dl>
       {order && <button className="btn btn-primary btn-block" onClick={() => { close(); onOrder(order.id) }}><Receipt size={17}/>Ver pedido #{number(order.number)}</button>}
-      {movement.receipt && <button className="btn btn-ghost btn-block" onClick={() => onReceipt(movement.receipt!)}><Receipt size={17}/>Ver factura</button>}
+      {photo && <div className="receipt-attachment-card">
+        <button type="button" className="receipt-attachment" onClick={() => onReceipt(photo)}>
+          <ReceiptPreviewThumb app={app} path={photo.path} alt={`Factura de ${movement.reason}`}/>
+          <span className="receipt-attachment-copy"><strong>Factura del movimiento</strong><small>Toca para abrir en otra página</small></span>
+          <ArrowRight size={16}/>
+        </button>
+        <button type="button" className="receipt-attachment-download" onClick={() => void app.downloadReceipt(photo.path, photo.name)} aria-label="Descargar foto de la factura" title="Descargar foto">
+          <Download size={16}/><span>Descargar</span>
+        </button>
+      </div>}
     </div>
   </Modal>
 }
@@ -1583,30 +1672,38 @@ function DailyReport({ app, business = 'palatto' }: { app: Restaurant; business?
   </details>
 }
 
-function DailySummary({ app, onCash, onOrder }: { app: Restaurant; onCash: (business: Business) => void; onOrder: (id: string) => void }) {
+function DailySummary({ app, onCash, onOrder, openPhoto }: { app: Restaurant; onCash: (business: Business) => void; onOrder: (id: string) => void; openPhoto: (photo: ReceiptPhoto) => void }) {
   const [selected, setSelected] = useState<Movement | null>(null)
-  const [viewReceipt, setViewReceipt] = useState<string | null>(null)
   const now = new Date()
   const summary = analyze(app.data.orders, app.data.products, 'hoy', now, paymentTimes(app.data.movements), app.data.order_payments)
   const todayKey = reportDate(now.toISOString())
   const movements = app.data.movements.filter(movement => reportDate(movement.created_at) === todayKey).sort((a, b) => b.created_at.localeCompare(a.created_at))
+  const { prefetchReceipts } = app
+  useEffect(() => {
+    const paths = movements.map(movement => movement.receipt).filter((value): value is string => Boolean(value)).slice(0, 20)
+    if (paths.length) void prefetchReceipts(paths)
+  }, [movements, prefetchReceipts])
   const sum = (kind: MovementKind) => movements.filter(movement => movement.kind === kind).reduce((value, movement) => value + movement.amount, 0)
   const expenses = Math.max(0, -sum('gasto'))
   const cashBalance = app.data.movements.reduce((value, movement) => value + movement.amount, 0)
   const balanceByMethod = (method: Method) => app.data.movements.filter(movement => movement.method === method).reduce((value, movement) => value + movement.amount, 0)
+  const cashOrders = summary.byMethod.efectivo.orders
+  const transferOrders = summary.byMethod.transferencia.orders
   const chartMax = Math.max(summary.revenue, expenses, cashBalance, 1)
   return <div className="daily-summary-page">
     <div className="page-heading"><div><p className="eyebrow">Palatto · {displayNumericText(new Date(todayKey + 'T12:00:00').toLocaleDateString('es-EC', { weekday: 'long', day: 'numeric', month: 'long' }))}</p><h1>Resumen del día</h1></div></div>
     <div className="daily-summary-grid">
       <article className="daily-summary-stat sales"><small>Vendido hoy</small><strong>{money(summary.revenue)}</strong><span>Confirmado al cobrar</span></article>
-      <article className="daily-summary-stat orders"><small>Pedidos cobrados</small><strong>{displayNumber(summary.orders)}</strong><span>En el día</span></article>
+      <article className="daily-summary-stat orders"><small>Pedidos cobrados</small><strong>{displayNumber(summary.orders)}</strong><span>{displayNumber(cashOrders)} efectivo · {displayNumber(transferOrders)} transf.</span></article>
       <article className="daily-summary-stat cash"><small>Saldo en caja</small><strong>{money(cashBalance)}</strong><span>Efectivo y transferencias</span></article>
     </div>
     <section className="summary-payment-breakdown" aria-label="Desglose de efectivo y transferencias">
-      <div><h2>Cobros de hoy</h2><p><span><Banknote size={16}/>Efectivo</span><b>{money(summary.byMethod.efectivo.revenue)}</b></p><p><span><CreditCard size={16}/>Transferencias</span><b>{money(summary.byMethod.transferencia.revenue)}</b></p>
-        <small>{displayNumber(summary.byMethod.efectivo.orders)} {summary.byMethod.efectivo.orders === 1 ? 'pedido' : 'pedidos'} en efectivo · {displayNumber(summary.byMethod.transferencia.orders)} por transferencia.</small>
+      <div><h2>Cobros de hoy</h2>
+        <p><span className="summary-method-label"><PaymentMethodTag method="efectivo"/><small>{displayNumber(cashOrders)} {cashOrders === 1 ? 'pedido' : 'pedidos'}</small></span><b>{money(summary.byMethod.efectivo.revenue)}</b></p>
+        <p><span className="summary-method-label"><PaymentMethodTag method="transferencia"/><small>{displayNumber(transferOrders)} {transferOrders === 1 ? 'pedido' : 'pedidos'}</small></span><b>{money(summary.byMethod.transferencia.revenue)}</b></p>
+        <small>{displayNumber(cashOrders)} {cashOrders === 1 ? 'pedido' : 'pedidos'} en efectivo y {displayNumber(transferOrders)} {transferOrders === 1 ? 'pedido' : 'pedidos'} por transferencia.</small>
       </div>
-      <div><h2>Saldo disponible</h2><p><span><Banknote size={16}/>Efectivo</span><b>{money(balanceByMethod('efectivo'))}</b></p><p><span><CreditCard size={16}/>Transferencias</span><b>{money(balanceByMethod('transferencia'))}</b></p></div>
+      <div><h2>Saldo disponible</h2><p><PaymentMethodTag method="efectivo"/><b>{money(balanceByMethod('efectivo'))}</b></p><p><PaymentMethodTag method="transferencia"/><b>{money(balanceByMethod('transferencia'))}</b></p></div>
     </section>
     <section className="summary-figure" aria-label="Gráfica de ventas, saldo en caja y gastos"><div className="summary-figure-heading"><div><span className="eyebrow">Vista rápida</span><h2>Así va el día</h2></div><span className="summary-figure-mark"><BarChart3 size={19}/></span></div>
       {[['Vendido', summary.revenue, 'sales'], ['En caja', cashBalance, 'cash'], ['Gastado', expenses, 'expenses']].map(([label, value, style]) => <div className="summary-bar-row" key={String(label)}><div><span>{label}</span><b>{money(Number(value))}</b></div><span className="summary-bar-track"><i className={String(style)} style={{ width: `${Math.max(2, Number(value) / chartMax * 100)}%` }}/></span></div>)}
@@ -1615,20 +1712,30 @@ function DailySummary({ app, onCash, onOrder }: { app: Restaurant; onCash: (busi
     <section className="daily-summary-log">
       <div className="section-heading"><h2>Movimientos de hoy</h2><span className="pill">{displayNumber(movements.length)}</span></div>
       {!movements.length ? <div className="empty"><div className="empty-icon"><Receipt size={26}/></div><h3>Aún no hay movimientos</h3><p>Los cobros y gastos aparecerán aquí en cuanto se registren.</p></div> : <div className="movement-list">
-        {movements.map(movement => <div className="movement" key={movement.id}>
-          <button type="button" className="movement-open" onClick={() => movement.order_id ? onOrder(movement.order_id) : setSelected(movement)} aria-label={`Ver detalle de ${movement.reason}`}>
-            <span className={`movement-icon ${movement.amount < 0 ? 'out' : ''}`}>{movement.amount < 0 ? <ArrowDownLeft size={17}/> : <ArrowUpRight size={17}/>}</span>
-            <div><strong>{movement.reason}</strong><small>{movementKindLabel(movement.kind)} · {dateTime(movement.created_at)} · {movement.method === 'efectivo' ? 'Efectivo' : 'Transferencia'}</small></div>
-            <b className={movement.amount < 0 ? 'negative' : 'positive'}>{movement.amount < 0 ? '−' : '+'}{money(Math.abs(movement.amount))}</b>
-          </button>
-        </div>)}
+        {movements.map(movement => {
+          const photo: ReceiptPhoto | null = movement.receipt
+            ? {
+                path: movement.receipt,
+                title: movement.reason,
+                subtitle: `${movementKindLabel(movement.kind)} · ${money(Math.abs(movement.amount))}`,
+                name: receiptName(movement.receipt, `factura-${movement.reason}`),
+              }
+            : null
+          return <div className={`movement ${photo ? 'has-receipt' : ''}`} key={movement.id}>
+            <button type="button" className="movement-open" onClick={() => movement.order_id ? onOrder(movement.order_id) : setSelected(movement)} aria-label={`Ver detalle de ${movement.reason}`}>
+              <span className={`movement-icon ${movement.amount < 0 ? 'out' : ''}`}>{movement.amount < 0 ? <ArrowDownLeft size={17}/> : <ArrowUpRight size={17}/>}</span>
+              <div><strong>{movement.reason}</strong><small>{movementKindLabel(movement.kind)} · {dateTime(movement.created_at)} · {movement.method === 'efectivo' ? 'Efectivo' : 'Transferencia'}</small></div>
+              <b className={movement.amount < 0 ? 'negative' : 'positive'}>{movement.amount < 0 ? '−' : '+'}{money(Math.abs(movement.amount))}</b>
+            </button>
+            {photo && <div className="movement-receipt-group">
+              <button type="button" className="movement-receipt" onClick={() => openPhoto(photo)} aria-label={`Ver factura de ${movement.reason}`}><ImageIcon size={14}/>Ver foto</button>
+              <button type="button" className="movement-receipt is-download" onClick={() => void app.downloadReceipt(photo.path, photo.name)} aria-label={`Descargar foto de ${movement.reason}`} title="Descargar foto"><Download size={14}/></button>
+            </div>}
+          </div>
+        })}
       </div>}
     </section>
-    {selected && <MovementDetail app={app} movement={selected} close={() => setSelected(null)} onOrder={onOrder} onReceipt={async path => {
-      setSelected(null)
-      try { setViewReceipt(await app.receiptUrl(path)) } catch (error) { app.setError((error as Error).message) }
-    }}/>}
-    {viewReceipt && <Modal title="Factura del movimiento" close={() => setViewReceipt(null)}><img className="receipt-image" src={viewReceipt} alt="Factura del movimiento"/></Modal>}
+    {selected && <MovementDetail app={app} movement={selected} close={() => setSelected(null)} onOrder={onOrder} onReceipt={photo => { setSelected(null); openPhoto(photo) }}/>}
   </div>
 }
 

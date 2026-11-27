@@ -4,6 +4,7 @@ import { canCash, canEdit, canMenu, canTakeOrders, total, validatePayment } from
 import type { Business, Data, Item, Method, MovementKind, Order, Product, Profile, Role } from './domain';
 import { notifyActivity } from './push';
 import type { PushActivity, PushDetails } from './push';
+import { compressReceiptImage, triggerBlobDownload } from './receipts';
 const empty: Data = { products: [], orders: [], shifts: [], movements: [], order_payments: [], profiles: [], audits: [], settings: [], notifications: [] };
 export function useRestaurant() {
     const [profile, setProfile] = useState<Profile | null>(null);
@@ -12,6 +13,10 @@ export function useRestaurant() {
     const [busy, setBusy] = useState(false);
     const lock = useRef(false);
     const refreshVersion = useRef(0);
+    const receiptCache = useRef(new Map<string, { url: string; expires: number }>());
+    const receiptUrlInflight = useRef(new Map<string, Promise<string>>());
+    const receiptBlobCache = useRef(new Map<string, { blob: Blob; objectUrl: string }>());
+    const receiptBlobInflight = useRef(new Map<string, Promise<{ blob: Blob; objectUrl: string }>>());
     const [error, setError] = useState('');
     const [notices, setNotices] = useState<{ id: string; message: string }[]>([]);
     const notice = notices.at(-1)?.message || '';
@@ -191,6 +196,124 @@ export function useRestaurant() {
                 throw new Error('El producto ya no está disponible.');
         }
     }
+    const getSignedReceiptUrl = useCallback(async (path: string): Promise<string> => {
+        const cached = receiptCache.current.get(path);
+        if (cached && cached.expires > Date.now() + 30_000) return cached.url;
+        const pending = receiptUrlInflight.current.get(path);
+        if (pending) return pending;
+        const request = (async () => {
+            const { data, error } = await supabase!.storage.from('receipts').createSignedUrl(path, 3600);
+            if (error) throw error;
+            receiptCache.current.set(path, { url: data.signedUrl, expires: Date.now() + 3600_000 });
+            return data.signedUrl;
+        })();
+        receiptUrlInflight.current.set(path, request);
+        try {
+            return await request;
+        } finally {
+            receiptUrlInflight.current.delete(path);
+        }
+    }, []);
+    const loadReceiptBlob = useCallback(async (path: string): Promise<{ blob: Blob; objectUrl: string }> => {
+        const cached = receiptBlobCache.current.get(path);
+        if (cached) return cached;
+        const pending = receiptBlobInflight.current.get(path);
+        if (pending) return pending;
+        const request = (async () => {
+            const signedUrl = await getSignedReceiptUrl(path);
+            const response = await fetch(signedUrl);
+            if (!response.ok) throw new Error('No se pudo cargar la foto.');
+            const blob = await response.blob();
+            const objectUrl = URL.createObjectURL(blob);
+            if (receiptBlobCache.current.size >= 40) {
+                const oldestKey = receiptBlobCache.current.keys().next().value;
+                if (oldestKey) {
+                    const oldest = receiptBlobCache.current.get(oldestKey);
+                    if (oldest) URL.revokeObjectURL(oldest.objectUrl);
+                    receiptBlobCache.current.delete(oldestKey);
+                }
+            }
+            const entry = { blob, objectUrl };
+            receiptBlobCache.current.set(path, entry);
+            return entry;
+        })();
+        receiptBlobInflight.current.set(path, request);
+        try {
+            return await request;
+        } finally {
+            receiptBlobInflight.current.delete(path);
+        }
+    }, [getSignedReceiptUrl]);
+    const peekReceiptObjectUrl = useCallback((path: string): string | null => {
+        return receiptBlobCache.current.get(path)?.objectUrl || null;
+    }, []);
+    const peekReceiptUrl = useCallback((path: string): string | null => {
+        const cachedBlob = receiptBlobCache.current.get(path);
+        if (cachedBlob) return cachedBlob.objectUrl;
+        const cached = receiptCache.current.get(path);
+        return cached && cached.expires > Date.now() + 30_000 ? cached.url : null;
+    }, []);
+    const prefetchReceipts = useCallback(async (paths: string[]) => {
+        if (!supabase) return;
+        const unique = Array.from(new Set(paths.filter(Boolean)));
+        if (!unique.length) return;
+        const now = Date.now();
+        const missingUrls = unique.filter(path => {
+            const cached = receiptCache.current.get(path);
+            return !cached || cached.expires <= now + 30_000;
+        });
+        if (missingUrls.length) {
+            try {
+                const { data: signedList, error } = await supabase.storage.from('receipts').createSignedUrls(missingUrls, 3600);
+                if (!error && signedList) {
+                    for (const entry of signedList) {
+                        if (entry.path && entry.signedUrl) {
+                            receiptCache.current.set(entry.path, { url: entry.signedUrl, expires: Date.now() + 3600_000 });
+                        }
+                    }
+                }
+            } catch {
+                // Ignore background prefetch failures; on-demand fetch handles retries.
+            }
+        }
+        // Warm up the first 8 images in memory so tapping them is instantaneous.
+        for (const path of unique.slice(0, 8)) {
+            if (receiptBlobCache.current.has(path) || receiptBlobInflight.current.has(path)) continue;
+            void loadReceiptBlob(path).catch(() => undefined);
+        }
+    }, [loadReceiptBlob]);
+    const receiptDisplayUrl = useCallback(async (path: string): Promise<{ displayUrl: string; externalUrl: string }> => {
+        const externalUrl = await getSignedReceiptUrl(path);
+        try {
+            const { objectUrl } = await loadReceiptBlob(path);
+            return { displayUrl: objectUrl, externalUrl };
+        } catch {
+            return { displayUrl: externalUrl, externalUrl };
+        }
+    }, [getSignedReceiptUrl, loadReceiptBlob]);
+    const downloadReceipt = useCallback(async (path: string, filename: string) => {
+        try {
+            const { blob } = await loadReceiptBlob(path);
+            triggerBlobDownload(blob, filename);
+        } catch {
+            const signedUrl = await getSignedReceiptUrl(path);
+            const link = document.createElement('a');
+            link.href = signedUrl;
+            link.target = '_blank';
+            link.rel = 'noreferrer';
+            link.download = filename;
+            document.body.appendChild(link);
+            link.click();
+            link.remove();
+        }
+    }, [getSignedReceiptUrl, loadReceiptBlob]);
+    useEffect(() => {
+        const blobs = receiptBlobCache.current;
+        return () => {
+            for (const entry of blobs.values()) URL.revokeObjectURL(entry.objectUrl);
+            blobs.clear();
+        };
+    }, []);
     return {
         data, profile, role, loading, busy, error, notice, notices, setError, setNotice, dismissNotice,
         login: (email: string, password: string) => run(async () => { if (!supabase)
@@ -427,16 +550,22 @@ export function useRestaurant() {
         },
         async upload(file: File): Promise<string> {
             if (!['image/jpeg', 'image/png', 'image/webp'].includes(file.type) || file.size > 5 * 1024 * 1024) throw new Error('Usa una imagen JPG, PNG o WebP de hasta 5 MB.');
-            const path = `${profile!.id}/${id()}.${file.type.split('/')[1]}`;
-            const { error } = await supabase!.storage.from('receipts').upload(path, file, { contentType: file.type, upsert: false });
+            const prepared = await compressReceiptImage(file);
+            const ext = prepared.type.split('/')[1] || 'jpg';
+            const path = `${profile!.id}/${id()}.${ext}`;
+            const { error } = await supabase!.storage.from('receipts').upload(path, prepared, { contentType: prepared.type, cacheControl: '31536000', upsert: false });
             if (error) throw error;
+            // Pre-populate local blob cache immediately so the uploader can preview/download with zero delay.
+            const objectUrl = URL.createObjectURL(prepared);
+            receiptBlobCache.current.set(path, { blob: prepared, objectUrl });
             return path;
         },
-        async receiptUrl(path: string) {
-            const { data, error } = await supabase!.storage.from('receipts').createSignedUrl(path, 120);
-            if (error) throw error;
-            return data.signedUrl;
-        },
+        receiptUrl: getSignedReceiptUrl,
+        peekReceiptUrl,
+        peekReceiptObjectUrl,
+        prefetchReceipts,
+        receiptDisplayUrl,
+        downloadReceipt,
     };
 }
 export type Restaurant = ReturnType<typeof useRestaurant>;
