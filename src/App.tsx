@@ -1538,16 +1538,13 @@ function Cash({ app, back, business = 'palatto', onOrder, openPhoto }: { app: Re
         : <ul className="movement-list">
             {movements.map(movement => {
               const photo = movement.receipt ? movementPhoto(movement) : null
-              return <li className={`movement ${photo ? 'has-receipt' : ''}`} key={movement.id}>
+              return <li className="movement" key={movement.id}>
                 <button type="button" className="movement-open" onClick={() => openMovement(movement)} aria-label={`Ver detalle de ${movement.reason}`}>
                   <span className={`movement-icon ${movement.amount < 0 ? 'out' : ''}`}>{movement.amount < 0 ? <ArrowUpRight size={18}/> : <ArrowRight size={18}/>}</span>
                   <div><strong>{movement.reason}</strong><small>{movementKindLabel(movement.kind)} · {dateTime(movement.created_at)}{cashOnly ? ' · Efectivo' : ` · ${movement.method === 'efectivo' ? 'Efectivo' : 'Transferencia'}`}</small></div>
+                  {photo && <span className="movement-photo-indicator" title="Tiene foto adjunta" aria-hidden="true"><ImageIcon size={16}/></span>}
                   <b className={movement.amount < 0 ? 'negative' : 'positive'}>{movement.amount > 0 ? '+' : '−'}{money(Math.abs(movement.amount))}</b>
                 </button>
-                {photo && <div className="movement-receipt-group">
-                  <button type="button" className="movement-receipt" onClick={() => openPhoto(photo)} aria-label={`Ver factura de ${movement.reason}`}><ImageIcon size={14}/>Ver foto</button>
-                  <button type="button" className="movement-receipt is-download" onClick={() => void app.downloadReceipt(photo.path, photo.name)} aria-label={`Descargar foto de ${movement.reason}`} title="Descargar foto"><Download size={14}/></button>
-                </div>}
               </li>
             })}
           </ul>}
@@ -1721,16 +1718,13 @@ function DailySummary({ app, onCash, onOrder, openPhoto }: { app: Restaurant; on
                 name: receiptName(movement.receipt, `factura-${movement.reason}`),
               }
             : null
-          return <div className={`movement ${photo ? 'has-receipt' : ''}`} key={movement.id}>
+          return <div className="movement" key={movement.id}>
             <button type="button" className="movement-open" onClick={() => movement.order_id ? onOrder(movement.order_id) : setSelected(movement)} aria-label={`Ver detalle de ${movement.reason}`}>
               <span className={`movement-icon ${movement.amount < 0 ? 'out' : ''}`}>{movement.amount < 0 ? <ArrowDownLeft size={17}/> : <ArrowUpRight size={17}/>}</span>
               <div><strong>{movement.reason}</strong><small>{movementKindLabel(movement.kind)} · {dateTime(movement.created_at)} · {movement.method === 'efectivo' ? 'Efectivo' : 'Transferencia'}</small></div>
+              {photo && <span className="movement-photo-indicator" title="Tiene foto adjunta" aria-hidden="true"><ImageIcon size={16}/></span>}
               <b className={movement.amount < 0 ? 'negative' : 'positive'}>{movement.amount < 0 ? '−' : '+'}{money(Math.abs(movement.amount))}</b>
             </button>
-            {photo && <div className="movement-receipt-group">
-              <button type="button" className="movement-receipt" onClick={() => openPhoto(photo)} aria-label={`Ver factura de ${movement.reason}`}><ImageIcon size={14}/>Ver foto</button>
-              <button type="button" className="movement-receipt is-download" onClick={() => void app.downloadReceipt(photo.path, photo.name)} aria-label={`Descargar foto de ${movement.reason}`} title="Descargar foto"><Download size={14}/></button>
-            </div>}
           </div>
         })}
       </div>}

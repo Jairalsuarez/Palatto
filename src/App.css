@@ -1709,6 +1709,7 @@ dialog.native-dialog.dialog-large {
 .movement-open:hover strong { color: var(--copper-dark); }
 .movement-open > div { flex: 1; min-width: 0; overflow-wrap: anywhere; }
 .movement-open > b { font-size: .9rem; font-variant-numeric: tabular-nums; white-space: nowrap; }
+.movement-photo-indicator { display:grid; width:29px; height:29px; flex:0 0 auto; place-items:center; border:1px solid color-mix(in oklab,var(--copper) 22%,var(--line)); border-radius:9px; color:var(--copper-dark); background:var(--copper-soft); }
 .movement-detail { display: grid; gap: 14px; }
 .movement-detail-total { display: grid; gap: 2px; padding: 16px; border-radius: 16px; background: var(--surface-2); }
 .movement-detail-total small { color: var(--muted); font-size: .76rem; font-weight: 700; }
@@ -2485,36 +2486,3 @@ dialog.native-dialog.dialog-large {
 .editor-foot-actions .btn { width: 100%; min-width: 0; padding-inline: 10px; font-size: .82rem; }
 
 .daily-summary-stat.orders { border-color: color-mix(in oklab, var(--blue) 30%, var(--line)); }
-
-.movement.has-receipt { flex-wrap: wrap; }
-.movement.has-receipt .movement-open { flex: 1 1 220px; }
-.movement-receipt-group {
-  display: inline-flex;
-  align-items: center;
-  gap: 5px;
-  flex: 0 0 auto;
-  margin-left: auto;
-}
-.movement-receipt {
-  display: inline-flex;
-  align-items: center;
-  gap: 5px;
-  flex: 0 0 auto;
-  min-height: 32px;
-  padding: 0 10px;
-  border: 1px solid var(--line);
-  border-radius: 9px;
-  background: var(--surface-2);
-  color: var(--ink-soft);
-  font-size: .72rem;
-  font-weight: 750;
-  cursor: pointer;
-  white-space: nowrap;
-}
-.movement-receipt.is-download {
-  width: 32px;
-  justify-content: center;
-  padding: 0;
-  background: var(--surface);
-}
-.movement-receipt:hover { border-color: var(--copper); background: var(--copper-soft); color: var(--copper-dark); }
