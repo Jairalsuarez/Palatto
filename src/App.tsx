@@ -113,6 +113,7 @@ export default function App() {
   const audioRef = useRef<AudioContext | null>(null)
   const kitchenBellRef = useRef<HTMLAudioElement | null>(null)
   const kitchenSoundUrlRef = useRef<string>(defaultKitchenSound)
+  const pushSyncUserRef = useRef('')
   const audioUnlocked = useRef(false)
   const alertedOrders = useRef(new Set<string>())
   const [hideValues, setHideValues] = useState(() => {
@@ -136,6 +137,52 @@ export default function App() {
       if (sound) kitchenSoundUrlRef.current = sound
     }).catch(() => undefined)
   }, [])
+
+  useEffect(() => {
+    const userId = app.profile?.id
+    const publicKey = import.meta.env.VITE_VAPID_PUBLIC_KEY as string | undefined
+    if (!userId || pushSyncUserRef.current === userId || !publicKey || !('serviceWorker' in navigator) || !('PushManager' in window) || !('Notification' in window) || Notification.permission !== 'granted') return
+    pushSyncUserRef.current = userId
+    let cancelled = false
+    void (async () => {
+      const registration = await navigator.serviceWorker.ready
+      let subscription = await registration.pushManager.getSubscription()
+      const hadLocalSubscription = Boolean(subscription)
+      if (!subscription) subscription = await registration.pushManager.subscribe({ userVisibleOnly: true, applicationServerKey: decodeVapidKey(publicKey) })
+      const status = await app.push({ action: 'subscription_status', endpoint: subscription.endpoint }) as { registered?: boolean }
+      if (cancelled) return
+      if (!status.registered && hadLocalSubscription) {
+        await subscription.unsubscribe()
+        subscription = await registration.pushManager.subscribe({ userVisibleOnly: true, applicationServerKey: decodeVapidKey(publicKey) })
+      }
+      if (!status.registered) await app.push({ action: 'subscribe', subscription: subscription.toJSON() })
+      if (!cancelled) window.dispatchEvent(new Event('palatto:push-subscription-synced'))
+    })().catch(() => { if (pushSyncUserRef.current === userId) pushSyncUserRef.current = '' })
+    return () => { cancelled = true }
+  }, [app.profile?.id])
+
+  useEffect(() => {
+    const userId = app.profile?.id
+    const publicKey = import.meta.env.VITE_VAPID_PUBLIC_KEY as string | undefined
+    if (!userId || pushSyncUserRef.current === userId || !publicKey || !('serviceWorker' in navigator) || !('PushManager' in window) || !('Notification' in window) || Notification.permission !== 'granted') return
+    pushSyncUserRef.current = userId
+    let cancelled = false
+    void (async () => {
+      const registration = await navigator.serviceWorker.ready
+      let subscription = await registration.pushManager.getSubscription()
+      const hadLocalSubscription = Boolean(subscription)
+      if (!subscription) subscription = await registration.pushManager.subscribe({ userVisibleOnly: true, applicationServerKey: decodeVapidKey(publicKey) })
+      const status = await app.push({ action: 'subscription_status', endpoint: subscription.endpoint }) as { registered?: boolean }
+      if (cancelled) return
+      if (!status.registered && hadLocalSubscription) {
+        await subscription.unsubscribe()
+        subscription = await registration.pushManager.subscribe({ userVisibleOnly: true, applicationServerKey: decodeVapidKey(publicKey) })
+      }
+      if (!status.registered) await app.push({ action: 'subscribe', subscription: subscription.toJSON() })
+      if (!cancelled) window.dispatchEvent(new Event('palatto:push-subscription-synced'))
+    })().catch(() => { if (pushSyncUserRef.current === userId) pushSyncUserRef.current = '' })
+    return () => { cancelled = true }
+  }, [app.profile?.id])
 
   useEffect(() => {
     let checking = false
@@ -1891,7 +1938,12 @@ function AccountPage({ app, installPrompt, installed, navigate, onInstall, kitch
   const vapidPublicKey = import.meta.env.VITE_VAPID_PUBLIC_KEY as string | undefined
   useEffect(() => {
     if (!('serviceWorker' in navigator) || !('PushManager' in window)) return
-    void navigator.serviceWorker.ready.then(async registration => setPushEnabled(Boolean(await registration.pushManager.getSubscription()))).catch(() => undefined)
+    const refreshSubscriptionState = () => {
+      void navigator.serviceWorker.ready.then(async registration => setPushEnabled(Boolean(await registration.pushManager.getSubscription()))).catch(() => undefined)
+    }
+    refreshSubscriptionState()
+    window.addEventListener('palatto:push-subscription-synced', refreshSubscriptionState)
+    return () => window.removeEventListener('palatto:push-subscription-synced', refreshSubscriptionState)
   }, [])
   async function togglePush() {
     setPushBusy(true); setPushMessage('')

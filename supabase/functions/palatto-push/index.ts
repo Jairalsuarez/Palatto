@@ -134,6 +134,14 @@ Deno.serve(async request => {
       return reply({ ok: true })
     }
 
+    if (body.action === 'subscription_status') {
+      const endpoint = body.endpoint
+      if (typeof endpoint !== 'string' || !allowedEndpoint(endpoint)) return reply({ error: 'Dirección de notificaciones inválida' }, 400)
+      const { data: subscription, error } = await admin.from('push_subscriptions').select('id').eq('user_id', user.id).eq('endpoint', endpoint).maybeSingle()
+      if (error) throw error
+      return reply({ ok: true, registered: Boolean(subscription) })
+    }
+
     if (body.action === 'unsubscribe') {
       if (typeof body.endpoint !== 'string' || !allowedEndpoint(body.endpoint)) return reply({ error: 'Dirección de notificaciones inválida' }, 400)
       const { error } = await admin.from('push_subscriptions').delete().eq('user_id', user.id).eq('endpoint', body.endpoint)
@@ -199,10 +207,16 @@ Deno.serve(async request => {
       const kitchenOnly = event === 'order_created'
       const { data: recipients, error: recipientsError } = await admin.from('profiles').select('id').eq('active', true).match(kitchenOnly ? { role: 'cocinero' } : {})
       if (recipientsError) throw recipientsError
-      if (!recipients?.length) return reply({ ok: true, notified, sent: 0, attempted: 0, reason: 'no_recipients' })
+      if (!recipients?.length) {
+        console.warn('Palatto push skipped: no active recipients', { event, kitchenOnly })
+        return reply({ ok: true, notified, sent: 0, attempted: 0, reason: 'no_recipients' })
+      }
       const { data: subscriptions, error: subscriptionsError } = await admin.from('push_subscriptions').select('id,endpoint,p256dh,auth').in('user_id', recipients.map(person => person.id))
       if (subscriptionsError) throw subscriptionsError
-      if (!subscriptions?.length) return reply({ ok: true, notified, sent: 0, attempted: 0, reason: 'no_subscriptions' })
+      if (!subscriptions?.length) {
+        console.warn('Palatto push skipped: recipients have no registered subscriptions', { event, kitchenOnly, recipientCount: recipients.length })
+        return reply({ ok: true, notified, sent: 0, attempted: 0, reason: 'no_subscriptions' })
+      }
       try { webpush.setVapidDetails(subject, publicKey, privateKey) }
       catch { return reply({ ok: true, notified, sent: 0, reason: 'invalid_vapid' }) }
       const failureStatuses: number[] = []

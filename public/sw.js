@@ -6,23 +6,21 @@ self.addEventListener('push', event => {
   const url = typeof message.url === 'string' && message.url.startsWith('/') && !message.url.startsWith('//') ? message.url : '/'
   const tag = `palatto-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`
   const shownAt = Date.now()
-  const lifetime = 5 * 60 * 1000
   const options = {
     body,
     icon: '/palatto-logo.png',
     badge: '/palatto-logo.png',
     timestamp: shownAt,
     requireInteraction: true,
-    data: { url, expiresAt: shownAt + lifetime },
+    data: { url },
     tag,
     renotify: true,
   }
   event.waitUntil((async () => {
-    const trigger = typeof TimestampTrigger === 'undefined' ? undefined : new TimestampTrigger(shownAt + lifetime)
     try {
-      await self.registration.showNotification(title, trigger ? { ...options, showTrigger: trigger } : options)
+      await self.registration.showNotification(title, options)
     } catch {
-      // Older browsers without scheduled notifications still show the push.
+      // Keep push delivery compatible with browsers that reject notification options.
       await self.registration.showNotification(title, options)
     }
   })())
