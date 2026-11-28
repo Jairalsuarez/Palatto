@@ -54,15 +54,15 @@ function buildNotice(event: string, details: Details) {
         push: true,
       }
     case 'order_updated':
-      return { title: 'Pedido actualizado', body: `${orderLabel(details)} se actualizó.`, push: false }
+      return { title: 'Pedido actualizado', body: `${orderLabel(details)} se actualizó.`, push: true }
     case 'order_paid':
-      return { title: 'Pedido cobrado', body: `${orderLabel(details)} · ${amount || 'Cobrado'} en ${details.method === 'efectivo + transferencia' ? 'efectivo y transferencia' : methodLabel(details.method)}.`, push: false }
+      return { title: 'Pedido cobrado', body: `${orderLabel(details)} · ${amount || 'Cobrado'} en ${details.method === 'efectivo + transferencia' ? 'efectivo y transferencia' : methodLabel(details.method)}.`, push: true }
     case 'order_delivered':
-      return { title: 'Pedido entregado', body: `${orderLabel(details)} fue marcado como entregado.`, push: false }
+      return { title: 'Pedido entregado', body: `${orderLabel(details)} fue marcado como entregado.`, push: true }
     case 'split_payment':
-      return { title: 'Pago registrado', body: `${details.label || 'Una persona'} pagó ${amount || 'su parte'} del ${orderLabel(details).toLowerCase()}.`, push: false }
+      return { title: 'Pago registrado', body: `${details.label || 'Una persona'} pagó ${amount || 'su parte'} del ${orderLabel(details).toLowerCase()}.`, push: true }
     case 'order_deleted':
-      return { title: 'Pedido eliminado', body: `${orderLabel(details)} · ${details.reason || 'Sin motivo'}.`, push: false }
+      return { title: 'Pedido eliminado', body: `${orderLabel(details)} · ${details.reason || 'Sin motivo'}.`, push: true }
     case 'product_saved':
       return { title: 'Menú actualizado', body: `${details.name || 'Un producto'} fue ${details.reason || 'actualizado'}.`, push: false }
     case 'product_photo_saved':
