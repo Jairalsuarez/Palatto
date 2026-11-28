@@ -1,5 +1,5 @@
 import { Fragment } from 'react'
-import { Banknote, ChevronRight, Download, Image as ImageIcon, Timer, Users } from 'lucide-react'
+import { Banknote, CheckCheck, ChevronRight, Download, Image as ImageIcon, Timer, Users } from 'lucide-react'
 import { useEffect, useState } from 'react'
 import { displayNumber, displayNumericText, money, orderService, orderTotal } from './lib/domain'
 import type { Method, Movement, Order, OrderPayment, Profile } from './lib/domain'
@@ -23,7 +23,7 @@ function PrepClock({ order }: { order: Order }) {
   const remaining = end - now
   const progress = Math.max(0, Math.min(1, remaining / duration))
   const seconds = Math.max(0, Math.ceil(remaining / 1000))
-  const label = remaining > 0 ? `${Math.floor(seconds / 60)}:${String(seconds % 60).padStart(2, '0')}` : 'Listo'
+  const label = remaining > 0 ? `${Math.floor(seconds / 60)}:${String(seconds % 60).padStart(2, '0')}` : '00:00'
   return <span className={`prep-clock-group ${remaining <= 5 * 60_000 ? 'is-near' : ''} ${remaining <= 0 ? 'is-ready' : ''}`} role="img" aria-label={remaining > 0 ? `Quedan ${label} para que esté listo` : 'Tiempo estimado cumplido'}>
     <span className="prep-clock" aria-hidden="true"><svg className="prep-clock-ring" viewBox="0 0 40 40"><circle className="prep-clock-track" cx="20" cy="20" r="17"/><circle className="prep-clock-progress" cx="20" cy="20" r="17" style={{ strokeDashoffset: `${107 * (1 - progress)}` }}/></svg><Timer className="prep-clock-icon" size={15}/></span>
     <span className="prep-clock-reading"><b>{label}</b><small>{remaining > 0 ? 'restantes' : 'estimado cumplido'}</small></span>
@@ -42,8 +42,6 @@ export function OrderList({
   profiles = [],
   photoUrl,
   deliver,
-  canMarkReady = false,
-  markReady,
 }: {
   orders: Order[]
   canPay: boolean
@@ -56,8 +54,6 @@ export function OrderList({
   profiles?: Profile[]
   photoUrl?: (path: string | null | undefined) => string
   deliver?: (order: Order) => void
-  canMarkReady?: boolean
-  markReady?: (order: Order) => void
 }) {
   const completed = orders.length > 0 && orders.every(order => order.paid)
   const dateKey = (order: Order) => new Intl.DateTimeFormat('en-CA', {
@@ -121,13 +117,13 @@ export function OrderList({
             <ChevronRight size={18} className="order-chevron" aria-hidden="true"/>
           </span>
           <span className="order-meta">
-            {orderService(order)} · {time(order.created_at)} · {displayNumber(items)} artículo{items === 1 ? '' : 's'}{!order.paid && order.status === 'completado' ? ' · Listo para entregar' : ''}
+              {orderService(order)} · {time(order.created_at)} · {displayNumber(items)} artículo{items === 1 ? '' : 's'}
           </span>
           {order.paid && (methods.length > 0 || receiptEntries.length > 0) && <span className="order-payment-line">
             {methods.map(method => <PaymentMethodTag key={method} method={method}/>)}
             {receiptEntries.length > 0 && <span className="order-photo-flag"><ImageIcon size={13} aria-hidden="true"/>{receiptEntries.length > 1 ? `${displayNumber(receiptEntries.length)} fotos` : 'Con foto'}</span>}
           </span>}
-          {!order.delivered_at && order.ready_at && <span className="order-prep-line"><span>{order.status === 'completado' ? 'Listo' : 'Estimado'} {time(order.ready_at)}{order.prep_minutes ? ` · ${displayNumber(order.prep_minutes)} min` : ''}</span><PrepClock order={order}/></span>}
+          {!order.delivered_at && order.ready_at && <span className="order-prep-line"><span>Preparación estimada · {time(order.ready_at)}{order.prep_minutes ? ` · ${displayNumber(order.prep_minutes)} min` : ''}</span><PrepClock order={order}/></span>}
           {order.prep_requested && <span className="order-request-status">Esperando respuesta de cocina · acciones bloqueadas</span>}
           {order.prep_rejected && <span className="order-request-rejected">Cocina rechazó el pedido. No se cobrará ni preparará.</span>}
           <span className="order-items">{summary}</span>
@@ -143,13 +139,12 @@ export function OrderList({
             : order.prep_rejected
             ? <span className="order-waiting-action">Rechazado por cocina</span>
             : payable
-            ? <div className="order-foot-actions">{canMarkReady && order.accepted_at && order.status === 'en_proceso' && markReady && <button type="button" className="btn btn-primary btn-sm" onClick={() => markReady(order)}>Listo</button>}<button type="button" className="btn btn-money btn-sm" onClick={() => pay(order)}>
+            ? <button type="button" className="btn btn-money btn-sm" onClick={() => pay(order)}>
                 <Banknote size={17} aria-hidden="true"/>{split.length ? 'Cobrar resto' : 'Cobrar'}
-              </button></div>
+              </button>
               : <div className="order-foot-actions">
-                {canMarkReady && !order.delivered_at && order.accepted_at && order.status === 'en_proceso' && markReady && <button type="button" className="btn btn-primary btn-sm" onClick={() => markReady(order)}>Listo</button>}
                 {order.security_code_enabled && order.security_code && <a className="pickup-share" href={`https://wa.me/?text=${encodeURIComponent(`Gracias por tu compra, retira tu pedido con el siguiente código: ${order.security_code}`)}`} target="_blank" rel="noreferrer">WhatsApp</a>}
-                {order.paid && !order.delivered_at && order.status === 'completado' && deliver && <button type="button" className="btn btn-primary btn-sm" onClick={() => deliver(order)}>Entregado</button>}
+                {order.paid && !order.delivered_at && deliver && <button type="button" className="btn btn-primary btn-sm order-deliver-button" onClick={() => deliver(order)}><CheckCheck size={16}/>Entregar</button>}
                 {singlePhoto && openPhoto && <button type="button" className="order-photo-btn" onClick={() => openPhoto(singlePhoto)} aria-label={`Ver foto del pedido #${number(order.number)}`}>
                   <ImageIcon size={14} aria-hidden="true"/><span>Foto</span>
                 </button>}

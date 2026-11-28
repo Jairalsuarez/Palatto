@@ -658,7 +658,7 @@ function Home({ app, detail, setDetail, payRequest, payHandled, onNew, onDrinks,
           action={!search && filter !== 'completados' && canTakeOrders(app.role) ? <button className="btn btn-primary" onClick={onNew}><Plus size={18}/>Tomar un pedido</button> : undefined}>
           {search ? 'Prueba con otro nombre o número.' : 'Cuando alguien pida algo, aparecerá aquí.'}
         </Empty>
-      : <OrderList orders={orders} canPay={canTakeOrders(app.role)} canMarkReady={canKitchen(app.role)} markReady={order => { void app.advanceKitchenOrder(order) }} payments={app.data.order_payments} movements={app.data.movements} profiles={app.data.profiles} photoUrl={app.profilePhotoUrl} deliver={order => { void app.deliverOrder(order) }} open={order => { app.setError(''); setDetail(order.id) }} pay={order => { app.setError(''); setPayment({ order, split: false }) }} openPhoto={openPhoto} downloadPhoto={(path, filename) => void app.downloadReceipt(path, filename)}/>}
+      : <OrderList orders={orders} canPay={canTakeOrders(app.role)} payments={app.data.order_payments} movements={app.data.movements} profiles={app.data.profiles} photoUrl={app.profilePhotoUrl} deliver={order => { void app.deliverOrder(order) }} open={order => { app.setError(''); setDetail(order.id) }} pay={order => { app.setError(''); setPayment({ order, split: false }) }} openPhoto={openPhoto} downloadPhoto={(path, filename) => void app.downloadReceipt(path, filename)}/>}
 
     {detailOrder && <OrderDetail app={app} order={detailOrder} close={() => setDetail(null)}
       pay={() => { setDetail(null); setPayment({ order: detailOrder, split: false }) }}
@@ -988,8 +988,7 @@ function OrderDetail({ app, order, close, pay, split, edit, showReceipt }: { app
                   <button className="btn btn-money btn-lg btn-block" disabled={app.busy} onClick={pay}><Banknote size={19}/>Cobrar {money(owed)}</button>
                   <button className="btn btn-ghost btn-block" onClick={split}><Users size={17}/>Dividir cuenta</button>
                 </>)}
-            {order.paid && !order.delivered_at && order.status === 'completado' && canTakeOrders(app.role) && <button className="btn btn-primary btn-lg btn-block" disabled={app.busy} onClick={async () => { if (await app.deliverOrder(order)) close() }}><CheckCheck size={19}/>Marcar como entregado</button>}
-            {canKitchen(app.role) && !order.delivered_at && order.accepted_at && order.status === 'en_proceso' && <button className="btn btn-primary btn-lg btn-block" disabled={app.busy} onClick={() => { void app.advanceKitchenOrder(order) }}><Check size={19}/>Marcar pedido como listo</button>}
+            {order.paid && !order.delivered_at && canTakeOrders(app.role) && <button className="btn btn-primary btn-lg btn-block" disabled={app.busy} onClick={async () => { if (await app.deliverOrder(order)) close() }}><CheckCheck size={19}/>Entregar</button>}
             {!order.prep_requested && !order.prep_rejected && !payments.length && canEdit(app.role, order) && <button className="btn btn-ghost btn-block" onClick={edit}><Pencil size={17}/>Editar pedido</button>}
             {!order.prep_requested && !order.paid && !payments.length && canTakeOrders(app.role) && <button className="btn btn-danger-ghost btn-block" onClick={() => setConfirming(true)}><Trash2 size={17}/>Eliminar pedido</button>}
           </div>
@@ -1029,9 +1028,6 @@ function FullPayment({ app, order, close, view }: { app: Restaurant; order: Orde
   const [editingTotal, setEditingTotal] = useState(false)
   const [formError, setFormError] = useState('')
   const [cashPart, setCashPart] = useState('')
-  const hasFood = order.items.some(item => !itemIsDrink(item))
-  const canDeliverNow = !hasFood || order.status === 'completado'
-  const [deliverNow, setDeliverNow] = useState(canDeliverNow)
   const parsed = totalInput.trim() === '' ? current : cents(totalInput)
   const amount = Number.isFinite(parsed) ? parsed : 0
   const changed = amount !== base
@@ -1047,7 +1043,7 @@ function FullPayment({ app, order, close, view }: { app: Restaurant; order: Orde
     const cash = method === 'efectivo' ? amount : method === 'transferencia' ? 0 : cents(cashPart)
     const transfer = amount - cash
     if (cash < 0 || transfer < 0 || (method === 'combinado' && (!Number.isInteger(cash) || cash <= 0 || transfer <= 0))) { setFormError('Indica un importe válido en efectivo y otro en transferencia.'); return }
-    if (await app.collectOrder(order, cash, transfer, given, receipt, amount, deliverNow && canDeliverNow)) close()
+    if (await app.collectOrder(order, cash, transfer, given, receipt, amount, false)) close()
   }}>
     <div className="pay-total">
       <span>Total a cobrar</span>
@@ -1093,8 +1089,6 @@ function FullPayment({ app, order, close, view }: { app: Restaurant; order: Orde
         </>
       : null}
     {(method === 'transferencia' || (method === 'combinado' && cents(cashPart) < amount)) && <ReceiptUpload app={app} value={receipt} onChange={setReceipt}/>}
-
-    <label className={`collect-choice ${!canDeliverNow ? 'disabled' : ''}`}><input type="checkbox" checked={deliverNow && canDeliverNow} disabled={!canDeliverNow} onChange={event => setDeliverNow(event.target.checked)}/><span><strong>{deliverNow && canDeliverNow ? 'Cobrar y entregar' : 'Cobrar y dejar en preparación'}</strong><small>{canDeliverNow ? 'El pedido puede entregarse ahora.' : 'Se marcará entregado cuando cocina lo deje listo.'}</small></span></label>
 
     <button type="button" className="link-button" onClick={view}>Ver detalle o editar<ArrowRight size={16}/></button>
 
@@ -1507,18 +1501,15 @@ function ProductPicker({ app, selected, add }: { app: Restaurant; selected: Item
 
 function Cash({ app, back, business = 'palatto', onOrder, openPhoto }: { app: Restaurant; back: () => void; business?: Business; onOrder: (id: string) => void; openPhoto: (photo: ReceiptPhoto) => void }) {
   const [form, setForm] = useState<'ingreso' | 'gasto' | 'retiro' | null>(null)
-  const [method, setMethod] = useState<Method>('efectivo')
-  const [amount, setAmount] = useState('')
-  const [reason, setReason] = useState('')
-  const [receipt, setReceipt] = useState<string | null>(null)
   const [selected, setSelected] = useState<Movement | null>(null)
   const [confirmReconcile, setConfirmReconcile] = useState(false)
   const [countedCash, setCountedCash] = useState('')
   const [countedTransfer, setCountedTransfer] = useState('')
 
   const cashOnly = business === 'carreta'
-  const movements = app.data.movements.filter(movement => movement.business === business && (!cashOnly || movement.method === 'efectivo')).sort((a, b) => b.created_at.localeCompare(a.created_at))
-  const balance = (method: Method) => movements.filter(movement => movement.method === method).reduce((sum, movement) => sum + movement.amount, 0)
+  const movements = useMemo(() => app.data.movements.filter(movement => movement.business === business && (!cashOnly || movement.method === 'efectivo')).sort((a, b) => b.created_at.localeCompare(a.created_at)), [app.data.movements, business, cashOnly])
+  const balances = useMemo(() => movements.reduce((result, movement) => ({ ...result, [movement.method]: result[movement.method] + movement.amount }), { efectivo: 0, transferencia: 0 }), [movements])
+  const balance = (method: Method) => balances[method]
 
   const { prefetchReceipts } = app
   useEffect(() => {
@@ -1528,14 +1519,11 @@ function Cash({ app, back, business = 'palatto', onOrder, openPhoto }: { app: Re
 
   function closeForm() {
     setForm(null)
-    setAmount('')
-    setReason('')
-    setReceipt(null)
   }
 
   function openForm(next: 'ingreso' | 'gasto' | 'retiro') {
     setForm(next)
-    setMethod('efectivo')
+    app.setError('')
   }
 
   function movementPhoto(movement: Movement): ReceiptPhoto {
@@ -1601,26 +1589,7 @@ function Cash({ app, back, business = 'palatto', onOrder, openPhoto }: { app: Re
           </ul>}
     </section>
 
-    {form && <Modal title={form === 'ingreso' ? 'Ingresar dinero' : form === 'gasto' ? 'Registrar gasto' : 'Retirar de caja'} close={closeForm} page>
-      <form className="form-stack" onSubmit={async event => {
-        event.preventDefault()
-        const value = cents(amount)
-        const done = await app.cash(business, form === 'retiro' || form === 'gasto' ? -value : value, method, reason, form, form === 'gasto' ? receipt : null)
-        if (done) closeForm()
-      }}>
-        <label>Importe ($)<input type="number" inputMode="decimal" step="0.01" min="0.01" max="1000000" required value={amount} onChange={event => setAmount(event.target.value)} placeholder="0.00" autoFocus/></label>
-        {!cashOnly && <label>Medio<select value={method} onChange={event => setMethod(event.target.value as Method)}>
-          <option value="efectivo">Efectivo</option>
-          <option value="transferencia">Transferencia</option>
-        </select></label>}
-        <label>Motivo<textarea rows={2} required minLength={3} maxLength={450} value={reason} onChange={event => setReason(event.target.value)} placeholder={form === 'ingreso' ? 'Fondo para dar suelto' : form === 'gasto' ? 'Compra de hielo, proveedor…' : 'Retiro del dueño'}/></label>
-        {form === 'gasto' && <ReceiptUpload app={app} value={receipt} onChange={setReceipt} title="Subir factura" hint="Opcional · foto o archivo JPG, PNG o WebP"/>}
-        {app.error && <p className="alert alert-error" role="alert">{app.error}</p>}
-        <button className="btn btn-primary btn-lg btn-block" disabled={app.busy}>
-          {app.busy ? 'Guardando…' : form === 'ingreso' ? 'Ingresar dinero' : form === 'gasto' ? 'Registrar gasto' : 'Retirar dinero'}<Check size={18}/>
-        </button>
-      </form>
-    </Modal>}
+    {form && <CashMovementForm key={form} app={app} business={business} cashOnly={cashOnly} form={form} close={closeForm}/>}
 
     {confirmReconcile && <Modal title="Cuadrar caja" close={() => setConfirmReconcile(false)}>
       <div className="cash-reconcile-dialog">
@@ -1650,6 +1619,29 @@ function Cash({ app, back, business = 'palatto', onOrder, openPhoto }: { app: Re
 
     {selected && <MovementDetail app={app} movement={selected} close={() => setSelected(null)} onOrder={onOrder} onReceipt={photo => { setSelected(null); openPhoto(photo) }}/>}
   </>
+}
+
+function CashMovementForm({ app, business, cashOnly, form, close }: { app: Restaurant; business: Business; cashOnly: boolean; form: 'ingreso' | 'gasto' | 'retiro'; close: () => void }) {
+  const [method, setMethod] = useState<Method>('efectivo')
+  const [amount, setAmount] = useState('')
+  const [reason, setReason] = useState('')
+  const [receipt, setReceipt] = useState<string | null>(null)
+  const title = form === 'ingreso' ? 'Ingresar dinero' : form === 'gasto' ? 'Registrar gasto' : 'Retirar de caja'
+  return <Modal title={title} close={close} page>
+    <form className="form-stack" onSubmit={async event => {
+      event.preventDefault()
+      const value = cents(amount)
+      const saved = await app.cash(business, form === 'retiro' || form === 'gasto' ? -value : value, method, reason, form, form === 'gasto' ? receipt : null)
+      if (saved) close()
+    }}>
+      <label>Importe ($)<input type="number" inputMode="decimal" step="0.01" min="0.01" max="1000000" required value={amount} onChange={event => setAmount(event.target.value)} placeholder="0.00" autoFocus/></label>
+      {!cashOnly && <label>Medio<select value={method} onChange={event => setMethod(event.target.value as Method)}><option value="efectivo">Efectivo</option><option value="transferencia">Transferencia</option></select></label>}
+      <label>Motivo<textarea rows={2} required minLength={3} maxLength={450} value={reason} onChange={event => setReason(event.target.value)} placeholder={form === 'ingreso' ? 'Fondo para dar suelto' : form === 'gasto' ? 'Compra de hielo, proveedor…' : 'Retiro del dueño'}/></label>
+      {form === 'gasto' && <ReceiptUpload app={app} value={receipt} onChange={setReceipt} title="Subir factura" hint="Opcional · foto o archivo JPG, PNG o WebP"/>}
+      {app.error && <p className="alert alert-error" role="alert">{app.error}</p>}
+      <button className="btn btn-primary btn-lg btn-block" disabled={app.busy}>{app.busy ? 'Guardando…' : title}<Check size={18}/></button>
+    </form>
+  </Modal>
 }
 
 function MovementDetail({ app, movement, close, onOrder, onReceipt }: { app: Restaurant; movement: Movement; close: () => void; onOrder: (id: string) => void; onReceipt: (photo: ReceiptPhoto) => void }) {
@@ -2066,13 +2058,67 @@ function Notifications({ app, back, onOrder }: { app: Restaurant; back: () => vo
   </div>
 }
 
+function ProfilePhotoCropper({ app, file, close, onSaved }: { app: Restaurant; file: File; close: () => void; onSaved: () => void }) {
+  const [source, setSource] = useState('')
+  const [x, setX] = useState(50)
+  const [y, setY] = useState(50)
+  const [zoom, setZoom] = useState(1)
+  const [saving, setSaving] = useState(false)
+  const [error, setError] = useState('')
+  const canvasRef = useRef<HTMLCanvasElement>(null)
+  useEffect(() => {
+    const url = URL.createObjectURL(file)
+    setSource(url)
+    return () => URL.revokeObjectURL(url)
+  }, [file])
+  useEffect(() => {
+    if (!source) return
+    const image = new Image()
+    image.onload = () => {
+      const canvas = canvasRef.current
+      const context = canvas?.getContext('2d')
+      if (!canvas || !context) return
+      const size = canvas.width
+      const scale = Math.max(size / image.naturalWidth, size / image.naturalHeight) * zoom
+      const width = image.naturalWidth * scale
+      const height = image.naturalHeight * scale
+      context.clearRect(0, 0, size, size)
+      context.drawImage(image, (size - width) * x / 100, (size - height) * y / 100, width, height)
+    }
+    image.src = source
+  }, [source, x, y, zoom])
+  async function saveCrop() {
+    const canvas = canvasRef.current
+    if (!canvas) return
+    setSaving(true); setError('')
+    try {
+      const blob = await new Promise<Blob>((resolve, reject) => canvas.toBlob(result => result ? resolve(result) : reject(new Error('No se pudo recortar la foto.')), 'image/jpeg', .9))
+      await app.saveProfilePhoto(new File([blob], 'foto-perfil.jpg', { type: 'image/jpeg' }))
+      onSaved()
+      close()
+    } catch (reason) { setError(reason instanceof Error ? reason.message : 'No se pudo guardar la foto.') }
+    finally { setSaving(false) }
+  }
+  return <Modal title="Ajustar foto de perfil" close={close} page>
+    <div className="profile-cropper">
+      <p>Desliza los controles hasta que tu cara quede centrada en el círculo.</p>
+      <div className="profile-crop-stage"><canvas ref={canvasRef} width={512} height={512} aria-label="Vista previa circular del encuadre"/></div>
+      <label>Acercamiento<input type="range" min="1" max="3" step="0.01" value={zoom} onChange={event => setZoom(Number(event.target.value))}/></label>
+      <label>Encuadre horizontal<input type="range" min="0" max="100" step="1" value={x} onChange={event => setX(Number(event.target.value))}/></label>
+      <label>Encuadre vertical<input type="range" min="0" max="100" step="1" value={y} onChange={event => setY(Number(event.target.value))}/></label>
+      {error && <p className="alert alert-error" role="alert">{error}</p>}
+      <button className="btn btn-primary btn-lg btn-block" disabled={saving || !source} onClick={() => void saveCrop()}>{saving ? 'Guardando foto…' : 'Guardar encuadre'}<Check size={18}/></button>
+    </div>
+  </Modal>
+}
+
 function AccountPage({ app, installPrompt, installed, navigate, onInstall, kitchenSoundUrl, onKitchenSoundChange }: { app: Restaurant; installPrompt: Event | null; installed: boolean; navigate: (page: Page) => void; onInstall: () => void; kitchenSoundUrl: string; onKitchenSoundChange: (url: string) => void }) {
   const [passwordOpen, setPasswordOpen] = useState(false)
   const [nameEditing, setNameEditing] = useState(false)
   const [profileName, setProfileName] = useState(app.profile!.name)
   const [nameMessage, setNameMessage] = useState('')
-  const [photoBusy, setPhotoBusy] = useState(false)
   const [photoMessage, setPhotoMessage] = useState('')
+  const [photoFile, setPhotoFile] = useState<File | null>(null)
   const [kitchenSoundName, setKitchenSoundName] = useState(() => kitchenSoundUrl === defaultKitchenSound ? 'Sonido predeterminado' : 'Sonido personalizado')
   const [kitchenSoundMessage, setKitchenSoundMessage] = useState('')
   const [soundPreviewing, setSoundPreviewing] = useState(false)
@@ -2147,23 +2193,28 @@ function AccountPage({ app, installPrompt, installed, navigate, onInstall, kitch
     try { await preview.play() } catch { setSoundPreviewing(false); setKitchenSoundMessage('Toca de nuevo para permitir la reproducción de audio.') }
   }
   useEffect(() => () => { kitchenSoundPreviewRef.current?.pause() }, [])
-  return <div className="settings-page">
-    <div className="page-head"><div><p className="eyebrow">Preferencias personales</p><h1>Tu cuenta</h1></div></div>
+  return <div className="settings-page profile-page">
+    <div className="page-head"><div><h1>Tu perfil</h1></div></div>
     <section className="account-profile-card">
-      <span className="avatar avatar-lg">{app.profile!.avatar_path ? <img src={app.profilePhotoUrl(app.profile!.avatar_path)} alt=""/> : app.profile!.name.slice(0, 1)}</span>
-      <div><strong>{app.profile!.name}</strong><small>{labels[app.role]}</small></div>
-      <span className="account-status"><Check size={15}/>Activa</span>
+      <div className="profile-cover"><span>PALATTO <i>·</i> EQUIPO</span></div>
+      <div className="profile-identity">
+        <label className="profile-avatar-pick" aria-label="Elegir foto de perfil">
+          <span className="avatar avatar-lg">{app.profile!.avatar_path ? <img src={app.profilePhotoUrl(app.profile!.avatar_path)} alt=""/> : app.profile!.name.slice(0, 1)}</span>
+          <span className="profile-avatar-edit"><Pencil size={14}/></span>
+          <input type="file" accept="image/jpeg,image/png,image/webp" onChange={event => { const file = event.currentTarget.files?.[0]; event.currentTarget.value = ''; if (file) { setPhotoMessage(''); setPhotoFile(file) } }}/>
+        </label>
+        <div className="profile-identity-copy"><div className="profile-role-line"><span className="account-status"><Check size={14}/>Activa</span><span>{labels[app.role]}</span></div><strong>{app.profile!.name}</strong></div>
+        {!nameEditing && <button className="btn btn-ghost btn-sm profile-edit-name" type="button" onClick={() => { setProfileName(app.profile!.name); setNameMessage(''); setNameEditing(true) }}><Pencil size={15}/>Editar perfil</button>}
+      </div>
     </section>
-    {!nameEditing
-      ? <button className="account-link" type="button" onClick={() => { setProfileName(app.profile!.name); setNameMessage(''); setNameEditing(true) }}><span>Cambiar nombre de la cuenta</span><Pencil size={17}/></button>
-      : <form className="profile-name-form" onSubmit={async event => { event.preventDefault(); setNameMessage(''); if (await app.updateProfileName(profileName)) { setNameMessage('Nombre actualizado.'); setNameEditing(false) } }}>
-          <label>Nombre de la cuenta<input value={profileName} onChange={event => setProfileName(event.target.value)} minLength={2} maxLength={60} required autoFocus/></label>
+    {nameEditing && <form className="profile-name-form" onSubmit={async event => { event.preventDefault(); setNameMessage(''); if (await app.updateProfileName(profileName)) { setNameMessage('Nombre actualizado.'); setNameEditing(false) } }}>
+          <label>Nombre<input value={profileName} onChange={event => setProfileName(event.target.value)} minLength={2} maxLength={60} required autoFocus/></label>
           {app.error && <p className="alert alert-error" role="alert">{app.error}</p>}
-          <div className="profile-name-actions"><button className="btn btn-primary" disabled={app.busy || profileName.trim() === app.profile!.name}>{app.busy ? 'Guardando…' : 'Guardar nombre'}</button><button className="btn btn-ghost" type="button" disabled={app.busy} onClick={() => setNameEditing(false)}>Cancelar</button></div>
+          <div className="profile-name-actions"><button className="btn btn-primary" disabled={app.busy || profileName.trim() === app.profile!.name}>{app.busy ? 'Guardando…' : 'Guardar cambios'}</button><button className="btn btn-ghost" type="button" disabled={app.busy} onClick={() => setNameEditing(false)}>Cancelar</button></div>
         </form>}
     {nameMessage && <p className="tiny" role="status">{nameMessage}</p>}
-    <label className="btn btn-ghost profile-photo-button">{photoBusy ? 'Guardando foto…' : 'Cambiar foto de perfil'}<input type="file" accept="image/jpeg,image/png,image/webp" disabled={photoBusy} onChange={async event => { const file = event.currentTarget.files?.[0]; event.currentTarget.value = ''; if (!file) return; setPhotoBusy(true); setPhotoMessage(''); try { await app.saveProfilePhoto(file); setPhotoMessage('Foto de perfil actualizada.') } catch (error) { setPhotoMessage(error instanceof Error ? error.message : 'No se pudo guardar la foto.') } finally { setPhotoBusy(false) } }}/></label>
     {photoMessage && <p className="tiny" role="status">{photoMessage}</p>}
+    {photoFile && <ProfilePhotoCropper app={app} file={photoFile} close={() => setPhotoFile(null)} onSaved={() => setPhotoMessage('Foto de perfil actualizada.')}/>}
     {app.role === 'cocinero' && <section className="settings-card kitchen-sound-settings">
       <div className="settings-card-title"><Volume2 size={20}/><div><h2>Sonido de solicitudes</h2><p>Alarma para cuando te pregunten el tiempo de preparación.</p></div></div>
       <div className="kitchen-sound-current"><span><strong>{kitchenSoundName}</strong><small>Se guarda solo en este dispositivo.</small></span><button type="button" className="btn btn-ghost" onClick={() => void previewKitchenSound()}>{soundPreviewing ? 'Reproduciendo…' : 'Probar'}</button></div>
