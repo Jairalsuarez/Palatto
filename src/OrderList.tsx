@@ -2,7 +2,7 @@ import { Fragment } from 'react'
 import { Banknote, ChevronRight, Download, Image as ImageIcon, Timer, Users } from 'lucide-react'
 import { useEffect, useState } from 'react'
 import { displayNumber, displayNumericText, money, orderService, orderTotal } from './lib/domain'
-import type { Method, Movement, Order, OrderPayment } from './lib/domain'
+import type { Method, Movement, Order, OrderPayment, Profile } from './lib/domain'
 import { receiptName } from './lib/receipts'
 import type { ReceiptPhoto } from './lib/receipts'
 import { PaymentMethodTag } from './PaymentMethodTag'
@@ -39,6 +39,11 @@ export function OrderList({
   pay,
   openPhoto,
   downloadPhoto,
+  profiles = [],
+  photoUrl,
+  deliver,
+  canMarkReady = false,
+  markReady,
 }: {
   orders: Order[]
   canPay: boolean
@@ -48,6 +53,11 @@ export function OrderList({
   pay: (order: Order) => void
   openPhoto?: (photo: ReceiptPhoto) => void
   downloadPhoto?: (path: string, filename: string) => void
+  profiles?: Profile[]
+  photoUrl?: (path: string | null | undefined) => string
+  deliver?: (order: Order) => void
+  canMarkReady?: boolean
+  markReady?: (order: Order) => void
 }) {
   const completed = orders.length > 0 && orders.every(order => order.paid)
   const dateKey = (order: Order) => new Intl.DateTimeFormat('en-CA', {
@@ -73,6 +83,8 @@ export function OrderList({
       const methods = Array.from(new Set<Method>(order.paid
         ? (split.length
           ? split.map(payment => payment.method)
+          : order.mixed_payment
+            ? movementMethods
           : order.method
             ? [order.method]
             : movementMethods)
@@ -103,8 +115,8 @@ export function OrderList({
           <span className="order-top">
             {receiptEntries.length > 0 && <ImageIcon size={14} className="order-photo-indicator" aria-label="Tiene foto"/>}
             <span className="order-number">#{number(order.number)}</span>
-            <span className={`chip ${order.paid ? 'chip-done' : 'chip-live'}`}>
-              <i aria-hidden="true"/>{order.paid ? 'Cobrado' : 'En proceso'}
+            <span className={`chip ${order.delivered_at ? 'chip-done' : order.paid ? 'chip-live' : 'chip-live'}`}>
+              <i aria-hidden="true"/>{order.delivered_at ? 'Entregado' : order.paid ? 'Pagado' : 'En proceso'}
             </span>
             <ChevronRight size={18} className="order-chevron" aria-hidden="true"/>
           </span>
@@ -115,10 +127,12 @@ export function OrderList({
             {methods.map(method => <PaymentMethodTag key={method} method={method}/>)}
             {receiptEntries.length > 0 && <span className="order-photo-flag"><ImageIcon size={13} aria-hidden="true"/>{receiptEntries.length > 1 ? `${displayNumber(receiptEntries.length)} fotos` : 'Con foto'}</span>}
           </span>}
-          {!order.paid && order.ready_at && <span className="order-prep-line"><span>Listo {time(order.ready_at)}{order.prep_minutes ? ` · estimado ${order.prep_minutes} min` : ''}</span><PrepClock order={order}/></span>}
+          {!order.delivered_at && order.ready_at && <span className="order-prep-line"><span>{order.status === 'completado' ? 'Listo' : 'Estimado'} {time(order.ready_at)}{order.prep_minutes ? ` · ${displayNumber(order.prep_minutes)} min` : ''}</span><PrepClock order={order}/></span>}
           {order.prep_requested && <span className="order-request-status">Esperando respuesta de cocina · acciones bloqueadas</span>}
           {order.prep_rejected && <span className="order-request-rejected">Cocina rechazó el pedido. No se cobrará ni preparará.</span>}
           <span className="order-items">{summary}</span>
+          {(() => { const creator = profiles.find(profile => profile.id === order.created_by); return creator ? <span className="order-actor"><span className="actor-avatar">{creator.avatar_path && photoUrl ? <img src={photoUrl(creator.avatar_path)} alt=""/> : creator.name.slice(0,1)}</span>Creado por {creator.name}</span> : null })()}
+          {order.security_code_enabled && order.security_code && <span className="pickup-code"><b>Código de retiro</b><strong>{order.security_code}</strong></span>}
           {order.notes && <span className="order-note-line">{order.notes}</span>}
           {!!split.length && <span className="order-split-line"><Users size={14} aria-hidden="true"/>{displayNumber(split.length)} {split.length === 1 ? 'pago' : 'pagos'} · falta {money(remaining)}</span>}
         </button>
@@ -129,10 +143,13 @@ export function OrderList({
             : order.prep_rejected
             ? <span className="order-waiting-action">Rechazado por cocina</span>
             : payable
-            ? <button type="button" className="btn btn-money btn-sm" onClick={() => pay(order)}>
+            ? <div className="order-foot-actions">{canMarkReady && order.accepted_at && order.status === 'en_proceso' && markReady && <button type="button" className="btn btn-primary btn-sm" onClick={() => markReady(order)}>Listo</button>}<button type="button" className="btn btn-money btn-sm" onClick={() => pay(order)}>
                 <Banknote size={17} aria-hidden="true"/>{split.length ? 'Cobrar resto' : 'Cobrar'}
-              </button>
-            : <div className="order-foot-actions">
+              </button></div>
+              : <div className="order-foot-actions">
+                {canMarkReady && !order.delivered_at && order.accepted_at && order.status === 'en_proceso' && markReady && <button type="button" className="btn btn-primary btn-sm" onClick={() => markReady(order)}>Listo</button>}
+                {order.security_code_enabled && order.security_code && <a className="pickup-share" href={`https://wa.me/?text=${encodeURIComponent(`Gracias por tu compra, retira tu pedido con el siguiente código: ${order.security_code}`)}`} target="_blank" rel="noreferrer">WhatsApp</a>}
+                {order.paid && !order.delivered_at && order.status === 'completado' && deliver && <button type="button" className="btn btn-primary btn-sm" onClick={() => deliver(order)}>Entregado</button>}
                 {singlePhoto && openPhoto && <button type="button" className="order-photo-btn" onClick={() => openPhoto(singlePhoto)} aria-label={`Ver foto del pedido #${number(order.number)}`}>
                   <ImageIcon size={14} aria-hidden="true"/><span>Foto</span>
                 </button>}

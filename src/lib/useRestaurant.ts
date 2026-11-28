@@ -357,7 +357,7 @@ export function useRestaurant() {
             const result = await rpc('kitchen_estimate_minutes', { p_id: order.id });
             return Number(result);
         },
-        saveOrder: async (customer: string, notes: string, items: Item[], order?: Order, takeaway = false, prepMinutes?: number, askKitchen = false) => {
+        saveOrder: async (customer: string, notes: string, items: Item[], order?: Order, takeaway = false, prepMinutes?: number, askKitchen = false, requirePickupCode = false) => {
             let savedId = order?.id || '';
             let updatedOrder: Order | null = null;
             const ok = await run(async () => {
@@ -384,7 +384,7 @@ export function useRestaurant() {
                     if (error) throw error;
                     updatedOrder = refreshed as Order;
                 } else {
-                    savedId = String(await rpc('create_order', { ...args, p_prep_minutes: prepMinutes ?? null, p_ask_kitchen: askKitchen }));
+                    savedId = String(await rpc('create_order_with_pickup_code', { ...args, p_prep_minutes: prepMinutes ?? null, p_ask_kitchen: askKitchen, p_require_pickup_code: requirePickupCode }));
                 }
             }, order ? 'Pedido actualizado' : 'Pedido puesto en cola', () => ({
                 event: order ? 'order_updated' : 'order_created',
@@ -418,6 +418,32 @@ export function useRestaurant() {
             event: 'order_paid',
             details: { actorName: profile?.name, orderId: order.id, orderNumber: order.number, customer: order.customer, amount, method },
         })),
+        collectOrder: (order: Order, cashAmount: number, transferAmount: number, received: number, receipt: string | null, amount: number, deliver: boolean) => run(async () => {
+            orderWriter();
+            if (order.paid) throw new Error('Este pedido ya está cobrado.');
+            if (data.order_payments.some(payment => payment.order_id === order.id)) throw new Error('Este pedido tiene pagos divididos. Cobra el resto desde Dividir cuenta.');
+            if (cashAmount < 0 || transferAmount < 0 || cashAmount + transferAmount !== amount) throw new Error('El efectivo y la transferencia deben sumar el total.');
+            if (cashAmount > 0 && (!Number.isSafeInteger(received) || received < cashAmount)) throw new Error('El efectivo recibido no cubre su parte.');
+            if (transferAmount > 0 && !receipt) throw new Error('Sube la foto del comprobante de transferencia.');
+            await rpc('collect_order', { p_id: order.id, p_version: order.version, p_cash_amount: cashAmount, p_transfer_amount: transferAmount, p_cash_received: received, p_transfer_receipt: receipt, p_total: amount, p_deliver: deliver });
+        }, 'Cobro registrado en caja.', () => ({ event: 'order_paid', details: { actorName: profile?.name, orderId: order.id, orderNumber: order.number, customer: order.customer, amount, method: cashAmount > 0 && transferAmount > 0 ? 'efectivo + transferencia' : cashAmount > 0 ? 'efectivo' : 'transferencia', delivered: deliver } })),
+        deliverOrder: (order: Order) => run(async () => {
+            orderWriter();
+            if (!order.paid) throw new Error('Cobra el pedido antes de marcarlo como entregado.');
+            if (order.delivered_at) throw new Error('El pedido ya fue entregado.');
+            await rpc('deliver_order', { p_id: order.id, p_version: order.version });
+        }, 'Pedido marcado como entregado.', () => ({ event: 'order_delivered', details: { actorName: profile?.name, orderId: order.id, orderNumber: order.number, customer: order.customer } })),
+        saveProfilePhoto: async (file: File) => {
+            if (!supabase || !profile) throw new Error('Inicia sesión para cambiar tu foto.');
+            if (!['image/jpeg', 'image/png', 'image/webp'].includes(file.type) || file.size > 2 * 1024 * 1024) throw new Error('Elige una foto JPG, PNG o WebP de hasta 2 MB.');
+            const path = `${profile.id}/${crypto.randomUUID()}.${file.type === 'image/png' ? 'png' : file.type === 'image/webp' ? 'webp' : 'jpg'}`;
+            const { error: uploadError } = await supabase.storage.from('profile-photos').upload(path, file, { upsert: false, contentType: file.type });
+            if (uploadError) throw uploadError;
+            const { error: saveError } = await supabase.rpc('save_profile_avatar', { p_path: path });
+            if (saveError) throw saveError;
+            await refresh();
+        },
+        profilePhotoUrl: (path: string | null | undefined) => path && supabase ? supabase.storage.from('profile-photos').getPublicUrl(path).data.publicUrl : '',
         splitPay: (order: Order, label: string, items: Item[], method: Method, received: number, receipt: string | null) => {
             const amount = items.reduce((sum, item) => sum + item.price * item.quantity + (item.takeaway_fee || 0) * (item.takeaway_quantity || 0), 0);
             return run(async () => {

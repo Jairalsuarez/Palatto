@@ -51,12 +51,14 @@ function buildNotice(event: string, details: Details) {
       return {
         title: 'Pedido nuevo',
         body: `${orderLabel(details)} · ${details.takeaway ? 'Para llevar' : 'Para servir'}${details.itemsSummary ? ` · ${details.itemsSummary}` : ''}${amount ? ` · ${amount}` : ''}`,
-        push: details.hasKitchenFood !== false,
+        push: true,
       }
     case 'order_updated':
       return { title: 'Pedido actualizado', body: `${orderLabel(details)} se actualizó.`, push: false }
     case 'order_paid':
-      return { title: 'Pedido cobrado', body: `${orderLabel(details)} · ${amount || 'Cobrado'} en ${methodLabel(details.method)}.`, push: false }
+      return { title: 'Pedido cobrado', body: `${orderLabel(details)} · ${amount || 'Cobrado'} en ${details.method === 'efectivo + transferencia' ? 'efectivo y transferencia' : methodLabel(details.method)}.`, push: false }
+    case 'order_delivered':
+      return { title: 'Pedido entregado', body: `${orderLabel(details)} fue marcado como entregado.`, push: false }
     case 'split_payment':
       return { title: 'Pago registrado', body: `${details.label || 'Una persona'} pagó ${amount || 'su parte'} del ${orderLabel(details).toLowerCase()}.`, push: false }
     case 'order_deleted':
@@ -183,9 +185,7 @@ Deno.serve(async request => {
       if (!notice) return reply({ error: 'Tipo de aviso inválido' }, 400)
 
       // Toda la actividad queda en el centro de notificaciones de la app.
-      const { error: insertError } = event === 'order_created'
-        ? { error: null }
-        : await admin.from('notifications').insert({
+      const { error: insertError } = await admin.from('notifications').insert({
           event,
           title: notice.title,
           body: notice.body,
@@ -194,9 +194,9 @@ Deno.serve(async request => {
           actor_name: profile.name || details.actorName || null,
         })
       if (insertError) console.error('No se pudo guardar la notificación interna', insertError)
-      const notified = event !== 'order_created' && !insertError
+      const notified = !insertError
 
-      // Solo los pedidos nuevos y los movimientos de caja se envían como push.
+      // Los avisos de actividad permitidos se envían a cada cuenta activa.
       if (!notice.push) return reply({ ok: true, notified, sent: 0, reason: 'internal_only' })
 
       const publicKey = Deno.env.get('PALATTO_VAPID_PUBLIC_KEY')
@@ -205,8 +205,8 @@ Deno.serve(async request => {
       if (!publicKey || !privateKey) return reply({ ok: true, notified, sent: 0, reason: 'push_not_configured' })
       // Every active account should receive activity notifications, including
       // the account that performed the action. A user may have several devices.
-      const kitchenOnly = event === 'order_created'
-      const { data: recipients, error: recipientsError } = await admin.from('profiles').select('id').eq('active', true).match(kitchenOnly ? { role: 'cocinero' } : {})
+      const kitchenOnly = false
+      const { data: recipients, error: recipientsError } = await admin.from('profiles').select('id').eq('active', true)
       if (recipientsError) throw recipientsError
       if (!recipients?.length) {
         console.warn('Palatto push skipped: no active recipients', { event, kitchenOnly })

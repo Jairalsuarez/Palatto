@@ -2,10 +2,10 @@ export type Role = 'superadmin' | 'administrador' | 'cocinero' | 'mesera' | 'mes
 export type Business = 'palatto' | 'carreta'
 export type Method = 'efectivo' | 'transferencia'
 export type MovementKind = 'ingreso' | 'gasto' | 'retiro' | 'cobro' | 'correccion' | 'transferencia'
-export interface Profile { id: string; name: string; role: Role; active: boolean; email?: string; must_change_password?: boolean }
+export interface Profile { id: string; name: string; role: Role; active: boolean; email?: string; avatar_path?: string | null; must_change_password?: boolean }
 export interface Product { takeaway_fee?: number; prep_minutes?: number; image_path?: string | null; id: string; name: string; price: number; business: Business; category: string; active: boolean; is_drink?: boolean }
 export interface Item { base_price?: number; takeaway_fee?: number; takeaway_quantity?: number; is_drink?: boolean; product_id: string; name: string; price: number; quantity: number; business: Business }
-export interface Order { takeaway?: boolean; split_payment?: boolean; order_day?: string; paid_at?: string | null; accepted_at?: string | null; ready_at?: string | null; prep_minutes?: number | null; prep_requested?: boolean; prep_rejected?: boolean; created_by?: string; adjustment?: number; adjustment_reason?: string | null; id: string; number: number; customer: string; notes: string; items: Item[]; status: 'en_proceso' | 'completado'; paid: boolean; method: Method | null; receipt: string | null; created_at: string; version: number }
+export interface Order { takeaway?: boolean; split_payment?: boolean; mixed_payment?: boolean; delivered_at?: string | null; security_code_enabled?: boolean; security_code?: string | null; order_day?: string; paid_at?: string | null; accepted_at?: string | null; ready_at?: string | null; prep_minutes?: number | null; prep_requested?: boolean; prep_rejected?: boolean; created_by?: string; adjustment?: number; adjustment_reason?: string | null; id: string; number: number; customer: string; notes: string; items: Item[]; status: 'en_proceso' | 'completado'; paid: boolean; method: Method | null; receipt: string | null; created_at: string; version: number }
 export interface Shift { id: string; business: Business; opened_at: string; closed_at: string | null }
 export interface Movement { id: string; business: Business; amount: number; method: Method; reason: string; kind: MovementKind; order_id: string | null; receipt?: string | null; created_at: string; actor?: string }
 export interface OrderPayment { id: string; order_id: string; label: string; items: Item[]; amount: number; method: Method; receipt: string | null; created_by: string; created_at: string }
@@ -61,7 +61,7 @@ export function recommendedPrepMinutes(order: Order, orders: Order[], products: 
   }
   const now = Date.now()
   let queueEnd = now
-  const active = orders.filter(candidate => !candidate.paid && candidate.status === 'en_proceso' && candidate.id !== order.id && candidate.items.some(item => !itemIsDrink(item)))
+  const active = orders.filter(candidate => !candidate.delivered_at && candidate.status === 'en_proceso' && candidate.id !== order.id && candidate.items.some(item => !itemIsDrink(item)))
     .sort((a, b) => a.created_at.localeCompare(b.created_at))
   for (const candidate of active) {
     const readyAt = candidate.ready_at ? new Date(candidate.ready_at).getTime() : 0

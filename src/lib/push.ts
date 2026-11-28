@@ -4,6 +4,7 @@ export type PushActivity =
   | 'order_created'
   | 'order_updated'
   | 'order_paid'
+  | 'order_delivered'
   | 'split_payment'
   | 'order_deleted'
   | 'product_saved'
@@ -31,13 +32,14 @@ export interface PushDetails {
   items?: number
   itemsSummary?: string
   amount?: number
-  method?: 'efectivo' | 'transferencia'
+  method?: 'efectivo' | 'transferencia' | 'efectivo + transferencia'
   kind?: 'ingreso' | 'gasto' | 'retiro' | 'cobro' | 'correccion' | 'transferencia'
   reason?: string
   label?: string
   name?: string
   paid?: boolean
   received?: boolean
+  delivered?: boolean
   reconciliationId?: string
   cashBalance?: number
   transferBalance?: number
