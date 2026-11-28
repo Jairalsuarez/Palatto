@@ -106,6 +106,10 @@ export default function App() {
   const [updateAvailable, setUpdateAvailable] = useState(false)
   const waitingWorkerRef = useRef<ServiceWorker | null>(null)
   const [page, setPage] = useState<Page>('pedidos')
+  const [appearance, setAppearance] = useState(() => ({
+    theme: localStorage.getItem('palatto:theme') || 'system',
+    accent: localStorage.getItem('palatto:accent') || 'copper',
+  }))
   const [editing, setEditing] = useState<Order | undefined>()
   const [cashBusiness, setCashBusiness] = useState<Business | null>(null)
   const [activePhoto, setActivePhoto] = useState<ReceiptPhoto | null>(null)
@@ -137,6 +141,13 @@ export default function App() {
     : undefined
 
   useEffect(() => { setSensitiveValuesHidden(hideValues) }, [hideValues])
+
+  useEffect(() => {
+    document.documentElement.dataset.theme = appearance.theme
+    document.documentElement.dataset.accent = appearance.accent
+    localStorage.setItem('palatto:theme', appearance.theme)
+    localStorage.setItem('palatto:accent', appearance.accent)
+  }, [appearance])
 
   useEffect(() => {
     void loadKitchenSound().then(sound => {
@@ -556,7 +567,7 @@ export default function App() {
       {page === 'foto' && activePhoto && <ReceiptPage key={activePhoto.path} app={app} photo={activePhoto} back={back}/>}
       {page === 'menu' && <Menu app={app}/>}
       {page === 'equipo' && app.role === 'superadmin' && <Team app={app}/>}
-      {page === 'cuenta' && <AccountPage app={app} installPrompt={installPrompt} installed={installed} navigate={navigate} onInstall={async () => {
+      {page === 'cuenta' && <AccountPage app={app} installPrompt={installPrompt} installed={installed} navigate={navigate} appearance={appearance} onAppearanceChange={(key, value) => setAppearance(current => ({ ...current, [key]: value }))} onInstall={async () => {
         if (!installPrompt) return
         const prompt = installPrompt as Event & { prompt: () => Promise<void>; userChoice: Promise<{ outcome: string }> }
         await prompt.prompt()
@@ -2112,7 +2123,8 @@ function ProfilePhotoCropper({ app, file, close, onSaved }: { app: Restaurant; f
   </Modal>
 }
 
-function AccountPage({ app, installPrompt, installed, navigate, onInstall, kitchenSoundUrl, onKitchenSoundChange }: { app: Restaurant; installPrompt: Event | null; installed: boolean; navigate: (page: Page) => void; onInstall: () => void; kitchenSoundUrl: string; onKitchenSoundChange: (url: string) => void }) {
+function AccountPage({ app, installPrompt, installed, navigate, appearance, onAppearanceChange, onInstall, kitchenSoundUrl, onKitchenSoundChange }: { app: Restaurant; installPrompt: Event | null; installed: boolean; navigate: (page: Page) => void; appearance: { theme: string; accent: string }; onAppearanceChange: (key: 'theme' | 'accent', value: string) => void; onInstall: () => void; kitchenSoundUrl: string; onKitchenSoundChange: (url: string) => void }) {
+  const [section, setSection] = useState<'inicio' | 'seguridad' | 'notificaciones' | 'instalar' | 'personalizacion' | 'sonido'>('inicio')
   const [passwordOpen, setPasswordOpen] = useState(false)
   const [nameEditing, setNameEditing] = useState(false)
   const [profileName, setProfileName] = useState(app.profile!.name)
@@ -2193,17 +2205,25 @@ function AccountPage({ app, installPrompt, installed, navigate, onInstall, kitch
     try { await preview.play() } catch { setSoundPreviewing(false); setKitchenSoundMessage('Toca de nuevo para permitir la reproducción de audio.') }
   }
   useEffect(() => () => { kitchenSoundPreviewRef.current?.pause() }, [])
+  const sectionTitles = { seguridad: 'Seguridad', notificaciones: 'Notificaciones', instalar: 'Instalar Palatto', personalizacion: 'Personalización', sonido: 'Sonido de cocina' } as const
+  const settingItems = [
+    { id: 'seguridad' as const, title: 'Seguridad', description: 'Contraseña y acceso a tu cuenta', icon: ShieldCheck, tone: 'green' },
+    { id: 'notificaciones' as const, title: 'Notificaciones', description: pushEnabled ? 'Avisos activados en este dispositivo' : 'Configura los avisos de Palatto', icon: Bell, tone: 'orange' },
+    { id: 'instalar' as const, title: 'Instalar aplicación', description: installed ? 'Palatto está instalada' : 'Acceso directo desde tu pantalla de inicio', icon: Download, tone: 'blue' },
+    { id: 'personalizacion' as const, title: 'Personalización', description: 'Tema y color de la aplicación', icon: Pencil, tone: 'purple' },
+    ...(app.role === 'cocinero' ? [{ id: 'sonido' as const, title: 'Sonido de cocina', description: 'Alarma para solicitudes de preparación', icon: Volume2, tone: 'orange' }] : []),
+  ]
   return <div className="settings-page profile-page">
-    <div className="page-head"><div><h1>Tu perfil</h1></div></div>
+    <div className="page-head settings-heading">{section !== 'inicio' && <button className="btn btn-ghost btn-sm settings-back" type="button" onClick={() => setSection('inicio')}><ChevronLeft size={18}/>Ajustes</button>}<div><h1>{section === 'inicio' ? 'Ajustes' : sectionTitles[section]}</h1>{section === 'inicio' && <p>Tu cuenta y preferencias de Palatto</p>}</div></div>
+    {section === 'inicio' && <>
     <section className="account-profile-card">
-      <div className="profile-cover"><span>PALATTO <i>·</i> EQUIPO</span></div>
       <div className="profile-identity">
         <label className="profile-avatar-pick" aria-label="Elegir foto de perfil">
           <span className="avatar avatar-lg">{app.profile!.avatar_path ? <img src={app.profilePhotoUrl(app.profile!.avatar_path)} alt=""/> : app.profile!.name.slice(0, 1)}</span>
           <span className="profile-avatar-edit"><Pencil size={14}/></span>
           <input type="file" accept="image/jpeg,image/png,image/webp" onChange={event => { const file = event.currentTarget.files?.[0]; event.currentTarget.value = ''; if (file) { setPhotoMessage(''); setPhotoFile(file) } }}/>
         </label>
-        <div className="profile-identity-copy"><div className="profile-role-line"><span className="account-status"><Check size={14}/>Activa</span><span>{labels[app.role]}</span></div><strong>{app.profile!.name}</strong></div>
+        <div className="profile-identity-copy"><strong>{app.profile!.name}</strong><span className="profile-role-label">{labels[app.role]}</span></div>
         {!nameEditing && <button className="btn btn-ghost btn-sm profile-edit-name" type="button" onClick={() => { setProfileName(app.profile!.name); setNameMessage(''); setNameEditing(true) }}><Pencil size={15}/>Editar perfil</button>}
       </div>
     </section>
@@ -2215,35 +2235,42 @@ function AccountPage({ app, installPrompt, installed, navigate, onInstall, kitch
     {nameMessage && <p className="tiny" role="status">{nameMessage}</p>}
     {photoMessage && <p className="tiny" role="status">{photoMessage}</p>}
     {photoFile && <ProfilePhotoCropper app={app} file={photoFile} close={() => setPhotoFile(null)} onSaved={() => setPhotoMessage('Foto de perfil actualizada.')}/>}
-    {app.role === 'cocinero' && <section className="settings-card kitchen-sound-settings">
+    <nav className="settings-menu" aria-label="Opciones de ajustes">{settingItems.map(item => <button className="settings-menu-item" key={item.id} type="button" onClick={() => setSection(item.id)}><span className={`settings-menu-icon ${item.tone}`}><item.icon size={19}/></span><span className="settings-menu-copy"><strong>{item.title}</strong><small>{item.description}</small></span><ArrowRight size={18}/></button>)}</nav>
+    <div className="account-links">
+      <button className="account-link" onClick={() => navigate('insumos')}><PackageOpen size={20}/><span>Insumos y stock</span><ArrowRight size={18}/></button>
+      {app.role === 'superadmin' && <button className="account-link" onClick={() => navigate('equipo')}><Users size={20}/><span>Equipo y cuentas</span><ArrowRight size={18}/></button>}
+    </div>
+    <button className="btn btn-ghost btn-block settings-logout" disabled={app.busy} onClick={() => void app.logout()}><LogOut size={18}/>Cerrar sesión</button>
+    </>}
+    {section === 'sonido' && app.role === 'cocinero' && <section className="settings-card kitchen-sound-settings">
       <div className="settings-card-title"><Volume2 size={20}/><div><h2>Sonido de solicitudes</h2><p>Alarma para cuando te pregunten el tiempo de preparación.</p></div></div>
       <div className="kitchen-sound-current"><span><strong>{kitchenSoundName}</strong><small>Se guarda solo en este dispositivo.</small></span><button type="button" className="btn btn-ghost" onClick={() => void previewKitchenSound()}>{soundPreviewing ? 'Reproduciendo…' : 'Probar'}</button></div>
       <label className="kitchen-sound-upload">Subir un sonido<input type="file" accept="audio/*,.mp3,.wav,.ogg,.m4a" onChange={event => { void updateKitchenSound(event.currentTarget.files?.[0]); event.currentTarget.value = '' }}/><span>MP3, WAV, OGG o M4A · hasta 2 MB</span></label>
       {kitchenSoundUrl !== defaultKitchenSound && <button className="account-link kitchen-sound-reset" type="button" onClick={resetKitchenSound}><span>Usar sonido predeterminado</span><ArrowRight size={18}/></button>}
       {kitchenSoundMessage && <p className="tiny" role="status">{kitchenSoundMessage}</p>}
     </section>}
-    <section className="settings-card">
+    {section === 'seguridad' && <section className="settings-card">
       <div className="settings-card-title"><ShieldCheck size={20}/><div><h2>Seguridad</h2><p>Actualiza tu clave cuando quieras.</p></div></div>
       <button className="account-link" onClick={() => setPasswordOpen(value => !value)}><span>{passwordOpen ? 'Cerrar cambio de contraseña' : 'Cambiar contraseña'}</span><ArrowRight size={18}/></button>
       {passwordOpen && <PasswordChange app={app}/>}
-    </section>
-    <section className="settings-card">
+    </section>}
+    {section === 'notificaciones' && <section className="settings-card">
       <div className="settings-card-title"><Bell size={20}/><div><h2>Notificaciones</h2><p>Recibe avisos de pedidos, caja, menú e insumos.</p></div></div>
       <button className={`btn ${pushEnabled ? 'btn-ghost' : 'btn-primary'} btn-block`} disabled={pushBusy} onClick={() => void togglePush()}>{pushBusy ? 'Actualizando…' : pushEnabled ? 'Desactivar en este dispositivo' : 'Activar notificaciones'}<Bell size={17}/></button>
       {pushMessage && <p className="tiny" role="status">{pushMessage}</p>}
       {typeof Notification !== 'undefined' && Notification.permission === 'denied' && <p className="tiny">El navegador bloqueó los avisos. Cámbialo en los permisos del sitio.</p>}
-    </section>
-    <section className="settings-card">
+    </section>}
+    {section === 'instalar' && <section className="settings-card">
       <div className="settings-card-title"><Download size={20}/><div><h2>Instalar Palatto</h2><p>Abre la app desde tu pantalla de inicio.</p></div></div>
       {installed ? <p className="install-state"><Check size={17}/>Palatto ya está instalada en este dispositivo.</p>
         : installPrompt ? <button className="btn btn-primary btn-block" onClick={onInstall}>Instalar aplicación<Download size={17}/></button>
         : <p className="install-help">En el menú del navegador, elige <strong>Instalar aplicación</strong> o <strong>Añadir a pantalla principal</strong>.</p>}
-    </section>
-    <div className="account-links">
-      <button className="account-link" onClick={() => navigate('insumos')}><PackageOpen size={20}/><span>Insumos y stock</span><ArrowRight size={18}/></button>
-      {app.role === 'superadmin' && <button className="account-link" onClick={() => navigate('equipo')}><Users size={20}/><span>Equipo y cuentas</span><ArrowRight size={18}/></button>}
-    </div>
-    <button className="btn btn-ghost btn-block" disabled={app.busy} onClick={() => void app.logout()}><LogOut size={18}/>Cerrar sesión</button>
+    </section>}
+    {section === 'personalizacion' && <section className="settings-card appearance-card">
+      <div className="settings-card-title"><Pencil size={20}/><div><h2>Personaliza Palatto</h2><p>Se guarda en este dispositivo y también se aplica en la app instalada.</p></div></div>
+      <fieldset className="appearance-field"><legend>Tema</legend><div className="appearance-options">{[['system','Sistema'],['light','Claro'],['dark','Oscuro']].map(([value,label]) => <button key={value} type="button" className={`appearance-choice ${appearance.theme === value ? 'selected' : ''}`} aria-pressed={appearance.theme === value} onClick={() => onAppearanceChange('theme', value)}><span className={`theme-preview ${value}`} aria-hidden="true"><i/><i/><i/></span><strong>{label}</strong>{appearance.theme === value && <Check size={16}/>}</button>)}</div></fieldset>
+      <fieldset className="appearance-field"><legend>Color de acento</legend><div className="accent-options">{[['copper','Cobre'],['green','Verde'],['blue','Azul']].map(([value,label]) => <button key={value} type="button" className={`accent-choice accent-${value} ${appearance.accent === value ? 'selected' : ''}`} aria-pressed={appearance.accent === value} onClick={() => onAppearanceChange('accent', value)}><i aria-hidden="true"/><span>{label}</span>{appearance.accent === value && <Check size={15}/>}</button>)}</div></fieldset>
+    </section>}
   </div>
 }
 

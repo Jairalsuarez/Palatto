@@ -112,7 +112,7 @@ export function OrderList({
             {receiptEntries.length > 0 && <ImageIcon size={14} className="order-photo-indicator" aria-label="Tiene foto"/>}
             <span className="order-number">#{number(order.number)}</span>
             <span className={`chip ${order.delivered_at ? 'chip-done' : order.paid ? 'chip-live' : 'chip-live'}`}>
-              <i aria-hidden="true"/>{order.delivered_at ? 'Entregado' : order.paid ? 'Pagado' : 'En proceso'}
+              <i aria-hidden="true"/>{order.delivered_at ? 'Entregado' : order.paid ? 'Pagado · Pendiente de entrega' : 'En proceso'}
             </span>
             <ChevronRight size={18} className="order-chevron" aria-hidden="true"/>
           </span>
