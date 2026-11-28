@@ -2219,13 +2219,13 @@ function AccountPage({ app, installPrompt, installed, navigate, appearance, onAp
     <section className="account-profile-card">
       <div className="profile-identity">
         <label className="profile-avatar-pick" aria-label="Elegir foto de perfil">
-          <span className="avatar avatar-lg">{app.profile!.avatar_path ? <img src={app.profilePhotoUrl(app.profile!.avatar_path)} alt=""/> : app.profile!.name.slice(0, 1)}</span>
+          <span className="avatar avatar-lg">{app.profile!.avatar_path ? <img src={app.profilePhotoUrl(app.profile!.avatar_path)} alt="Foto de perfil"/> : app.profile!.name.slice(0, 1)}</span>
           <span className="profile-avatar-edit"><Pencil size={14}/></span>
           <input type="file" accept="image/jpeg,image/png,image/webp" onChange={event => { const file = event.currentTarget.files?.[0]; event.currentTarget.value = ''; if (file) { setPhotoMessage(''); setPhotoFile(file) } }}/>
         </label>
         <div className="profile-identity-copy"><strong>{app.profile!.name}</strong><span className="profile-role-label">{labels[app.role]}</span></div>
-        {!nameEditing && <button className="profile-edit-name" type="button" aria-label="Cambiar nombre" title="Cambiar nombre" onClick={() => { setProfileName(app.profile!.name); setNameMessage(''); setNameEditing(true) }}><Pencil size={17}/></button>}
       </div>
+      {!nameEditing && <button className="profile-edit-name" type="button" aria-label="Cambiar nombre" title="Cambiar nombre" onClick={() => { setProfileName(app.profile!.name); setNameMessage(''); setNameEditing(true) }}><Pencil size={16}/></button>}
     </section>
     {nameEditing && <form className="profile-name-form" onSubmit={async event => { event.preventDefault(); setNameMessage(''); if (await app.updateProfileName(profileName)) { setNameMessage('Nombre actualizado.'); setNameEditing(false) } }}>
           <label>Nombre<input value={profileName} onChange={event => setProfileName(event.target.value)} minLength={2} maxLength={60} required autoFocus/></label>
