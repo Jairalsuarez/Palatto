@@ -1754,6 +1754,10 @@ dialog.native-dialog.dialog-large {
   cursor: pointer;
 }
 .movement-open:hover strong { color: var(--copper-dark); }
+.movement-filters { display: flex; gap: 7px; width: 100%; padding: 2px 1px 5px; overflow-x: auto; overscroll-behavior-inline: contain; scrollbar-width: thin; }
+.movement-filters button { flex: 0 0 auto; min-height: 36px; padding: 7px 12px; border: 1px solid var(--line); border-radius: 999px; background: var(--surface); color: var(--muted); font-size: .75rem; font-weight: 750; transition: background-color .15s ease, color .15s ease, border-color .15s ease; }
+.movement-filters button.active { border-color: var(--copper); background: var(--copper-soft); color: var(--copper-dark); }
+.load-more-orders { margin: 12px auto 20px; max-width: 420px; }
 .movement-open > div { flex: 1; min-width: 0; overflow-wrap: anywhere; }
 .movement-open > b { font-size: .9rem; font-variant-numeric: tabular-nums; white-space: nowrap; }
 .order-deliver-button { min-height: 42px; padding-inline: 14px; box-shadow: 0 3px 10px color-mix(in oklab, var(--green) 15%, transparent); }

@@ -613,29 +613,23 @@ export default function App() {
 function Home({ app, detail, setDetail, payRequest, payHandled, onNew, onDrinks, onSummary, onCash, onEdit, openPhoto }: { app: Restaurant; detail: string | null; setDetail: (id: string | null) => void; payRequest: string | Order | null; payHandled: () => void; onNew: () => void; onDrinks: () => void; onSummary: () => void; onCash: (business: Business) => void; onEdit: (order: Order) => void; openPhoto: (photo: ReceiptPhoto) => void }) {
   const [filter, setFilter] = useState<'activos' | 'completados' | 'todos'>('activos')
   const [search, setSearch] = useState('')
+  const [visibleLimit, setVisibleLimit] = useState(50)
   const [payment, setPayment] = useState<{ order: Order; split: boolean } | null>(null)
 
-  const orders = app.data.orders.filter(order => {
+  const orderGroups = useMemo(() => {
+    const active = app.data.orders.filter(order => !order.delivered_at).sort((a, b) => a.created_at.localeCompare(b.created_at))
+    const delivered = app.data.orders.filter(order => Boolean(order.delivered_at)).sort((a, b) => (b.delivered_at || b.paid_at || b.created_at).localeCompare(a.delivered_at || a.paid_at || a.created_at))
+    const all = [...app.data.orders].sort((a, b) => a.created_at.localeCompare(b.created_at))
+    return { activos: active, completados: delivered, todos: all }
+  }, [app.data.orders])
+  const orders = orderGroups[filter].filter(order => {
     const matchesFilter = filter === 'todos' || (filter === 'activos' ? !order.delivered_at : Boolean(order.delivered_at))
     return matchesFilter && `${order.number} ${order.customer}`.toLowerCase().includes(search.toLowerCase())
-  }).sort((a, b) => filter === 'completados'
-    ? (b.delivered_at || b.paid_at || b.created_at).localeCompare(a.delivered_at || a.paid_at || a.created_at)
-    : a.created_at.localeCompare(b.created_at))
+  })
+  const visibleOrders = orders.slice(0, visibleLimit)
   const latestPaymentOrder = app.data.orders.find(order => order.id === payment?.order.id)
   const paymentOrder = payment && (!latestPaymentOrder || latestPaymentOrder.version < payment.order.version) ? payment.order : latestPaymentOrder
   const detailOrder = app.data.orders.find(order => order.id === detail)
-
-  const { prefetchReceipts } = app
-  useEffect(() => {
-    const orderIds = new Set(orders.slice(0, 20).map(order => order.id))
-    const paths = [
-      ...orders.slice(0, 20).map(order => order.receipt).filter((value): value is string => Boolean(value)),
-      ...app.data.order_payments
-        .filter(item => orderIds.has(item.order_id) && item.receipt)
-        .map(item => item.receipt!),
-    ]
-    if (paths.length) void prefetchReceipts(paths)
-  }, [orders, app.data.order_payments, prefetchReceipts])
 
   useEffect(() => {
     if (!payRequest) return
@@ -656,11 +650,11 @@ function Home({ app, detail, setDetail, payRequest, payHandled, onNew, onDrinks,
     <div className="toolbar">
       <div className="segmented" role="group" aria-label="Filtrar pedidos">
         {([['activos', 'En proceso'], ['completados', 'Entregados'], ['todos', 'Todos']] as const).map(([id, label]) =>
-          <button key={id} className={filter === id ? 'active' : ''} aria-pressed={filter === id} onClick={() => setFilter(id)}>{label}</button>)}
+          <button key={id} className={filter === id ? 'active' : ''} aria-pressed={filter === id} onClick={() => { setVisibleLimit(50); setFilter(id) }}>{label}</button>)}
       </div>
       <label className="search">
         <Search size={18} aria-hidden="true"/>
-        <input aria-label="Buscar pedido" placeholder="Buscar por número o nombre" value={search} onChange={event => setSearch(event.target.value)}/>
+        <input aria-label="Buscar pedido" placeholder="Buscar por número o nombre" value={search} onChange={event => { setVisibleLimit(50); setSearch(event.target.value) }}/>
       </label>
     </div>
 
@@ -669,7 +663,7 @@ function Home({ app, detail, setDetail, payRequest, payHandled, onNew, onDrinks,
           action={!search && filter !== 'completados' && canTakeOrders(app.role) ? <button className="btn btn-primary" onClick={onNew}><Plus size={18}/>Tomar un pedido</button> : undefined}>
           {search ? 'Prueba con otro nombre o número.' : 'Cuando alguien pida algo, aparecerá aquí.'}
         </Empty>
-      : <OrderList orders={orders} canPay={canTakeOrders(app.role)} payments={app.data.order_payments} movements={app.data.movements} profiles={app.data.profiles} photoUrl={app.profilePhotoUrl} deliver={order => { void app.deliverOrder(order) }} open={order => { app.setError(''); setDetail(order.id) }} pay={order => { app.setError(''); setPayment({ order, split: false }) }} openPhoto={openPhoto} downloadPhoto={(path, filename) => void app.downloadReceipt(path, filename)}/>}
+      : <><OrderList orders={visibleOrders} canPay={canTakeOrders(app.role)} payments={app.data.order_payments} movements={app.data.movements} profiles={app.data.profiles} photoUrl={app.profilePhotoUrl} deliver={order => { void app.deliverOrder(order) }} open={order => { app.setError(''); setDetail(order.id) }} pay={order => { app.setError(''); setPayment({ order, split: false }) }} openPhoto={openPhoto} downloadPhoto={(path, filename) => void app.downloadReceipt(path, filename)}/>{visibleOrders.length < orders.length && <button className="btn btn-ghost btn-block load-more-orders" type="button" onClick={() => setVisibleLimit(limit => limit + 50)}>Cargar más pedidos ({displayNumber(orders.length - visibleOrders.length)} restantes)</button>}</>}
 
     {detailOrder && <OrderDetail app={app} order={detailOrder} close={() => setDetail(null)}
       pay={() => { setDetail(null); setPayment({ order: detailOrder, split: false }) }}
@@ -1513,12 +1507,15 @@ function ProductPicker({ app, selected, add }: { app: Restaurant; selected: Item
 function Cash({ app, back, business = 'palatto', onOrder, openPhoto }: { app: Restaurant; back: () => void; business?: Business; onOrder: (id: string) => void; openPhoto: (photo: ReceiptPhoto) => void }) {
   const [form, setForm] = useState<'ingreso' | 'gasto' | 'retiro' | null>(null)
   const [selected, setSelected] = useState<Movement | null>(null)
+  const [movementFilter, setMovementFilter] = useState<'todos' | 'cobro' | 'ingreso' | 'gasto' | 'retiro' | 'transferencias' | 'correccion'>('todos')
   const [confirmReconcile, setConfirmReconcile] = useState(false)
   const [countedCash, setCountedCash] = useState('')
   const [countedTransfer, setCountedTransfer] = useState('')
 
   const cashOnly = business === 'carreta'
   const movements = useMemo(() => app.data.movements.filter(movement => movement.business === business && (!cashOnly || movement.method === 'efectivo')).sort((a, b) => b.created_at.localeCompare(a.created_at)), [app.data.movements, business, cashOnly])
+  const visibleMovements = useMemo(() => movements.filter(movement => movementFilter === 'todos'
+    || (movementFilter === 'transferencias' ? movement.method === 'transferencia' || movement.kind === 'transferencia' : movement.kind === movementFilter)), [movements, movementFilter])
   const balances = useMemo(() => movements.reduce((result, movement) => ({ ...result, [movement.method]: result[movement.method] + movement.amount }), { efectivo: 0, transferencia: 0 }), [movements])
   const balance = (method: Method) => balances[method]
 
@@ -1579,14 +1576,13 @@ function Cash({ app, back, business = 'palatto', onOrder, openPhoto }: { app: Re
         </div>
       : <p className="alert alert-info"><ShieldCheck size={17}/>Solo administración puede ajustar la caja. Los cobros entran automáticamente.</p>}
 
-    <DailyReport app={app} business={business}/>
-
     <section className="stack">
-        <div className="section-top"><h2>Movimientos</h2><span className="pill">{displayNumber(movements.length)}</span></div>
-      {!movements.length
+        <div className="section-top"><h2>Movimientos</h2><span className="pill">{displayNumber(visibleMovements.length)}</span></div>
+      <div className="movement-filters" role="group" aria-label="Filtrar movimientos">{([['todos','Todos'],['cobro','Cobros'],['ingreso','Ingresos'],['gasto','Gastos'],['retiro','Retiros'],['transferencias','Transferencias'],['correccion','Correcciones']] as const).map(([id,label]) => <button type="button" key={id} className={movementFilter === id ? 'active' : ''} aria-pressed={movementFilter === id} onClick={() => setMovementFilter(id)}>{label}</button>)}</div>
+      {!visibleMovements.length
         ? <p className="empty-line">Aquí verás cada ingreso, gasto, retiro y cobro.</p>
         : <ul className="movement-list">
-            {movements.map(movement => {
+            {visibleMovements.map(movement => {
               const photo = movement.receipt ? movementPhoto(movement) : null
               return <li className="movement" key={movement.id}>
                 <button type="button" className="movement-open" onClick={() => openMovement(movement)} aria-label={`Ver detalle de ${movement.reason}`}>
@@ -1699,30 +1695,6 @@ function MovementDetail({ app, movement, close, onOrder, onReceipt }: { app: Res
 }
 
 const reportDate = (value: string) => new Intl.DateTimeFormat('en-CA', { timeZone: 'America/Guayaquil', year: 'numeric', month: '2-digit', day: '2-digit' }).format(new Date(value))
-function DailyReport({ app, business = 'palatto' }: { app: Restaurant; business?: Business }) {
-  const [day, setDay] = useState(() => reportDate(new Date().toISOString()))
-  const cashOnly = business === 'carreta'
-  const records = app.data.movements.filter(movement => movement.business === business && (!cashOnly || movement.method === 'efectivo') && reportDate(movement.created_at) === day)
-  const kinds: MovementKind[] = ['cobro', 'ingreso', 'gasto', 'retiro', 'correccion', 'transferencia']
-  return <details className="daily-report">
-    <summary>Reporte del día<span>{displayNumericText(new Date(day + 'T12:00:00').toLocaleDateString('es-EC', { day: 'numeric', month: 'short' }))}</span></summary>
-    <label>Fecha<input type="date" value={day} onChange={event => setDay(event.target.value)}/></label>
-    {(cashOnly ? ['efectivo'] as Method[] : ['efectivo', 'transferencia'] as Method[]).map(method => {
-      const selected = records.filter(movement => movement.method === method)
-      return <div className="report-method" key={method}>
-        <h3>{method === 'efectivo' ? 'Efectivo' : 'Transferencias'}</h3>
-        {kinds.map(kind => {
-          const value = selected.filter(movement => movement.kind === kind).reduce((sum, movement) => sum + movement.amount, 0)
-          if (!value) return null
-          return <div key={kind}><span>{movementKindLabel(kind)}</span><b className={value < 0 ? 'negative' : ''}>{value < 0 ? '−' : ''}{money(Math.abs(value))}</b></div>
-        })}
-        {!selected.length && <div><span>Sin movimientos</span><b>{money(0)}</b></div>}
-        <div className="report-net"><span>Neto</span><b>{money(selected.reduce((sum, movement) => sum + movement.amount, 0))}</b></div>
-      </div>
-    })}
-  </details>
-}
-
 function DailySummary({ app, onCash, onOrder, openPhoto }: { app: Restaurant; onCash: (business: Business) => void; onOrder: (id: string) => void; openPhoto: (photo: ReceiptPhoto) => void }) {
   const [selected, setSelected] = useState<Movement | null>(null)
   const now = new Date()
