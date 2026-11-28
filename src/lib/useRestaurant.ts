@@ -443,6 +443,21 @@ export function useRestaurant() {
             if (saveError) throw saveError;
             await refresh();
         },
+        updateProfileName: (name: string) => run(async () => {
+            if (!profile) throw new Error('Inicia sesión para cambiar el nombre.');
+            const cleaned = name.trim();
+            if (cleaned.length < 2 || cleaned.length > 60) throw new Error('El nombre debe tener entre 2 y 60 caracteres.');
+            await rpc('update_profile_name', { p_name: cleaned });
+        }, 'Nombre actualizado.'),
+        enablePickupCode: async (orderId: string): Promise<string | null> => {
+            let code = '';
+            const ok = await run(async () => {
+                const result = await rpc('set_order_pickup_code', { p_id: orderId });
+                code = String(result);
+                if (!/^\d{2}$/.test(code)) throw new Error('No se recibió un código de retiro válido.');
+            }, 'Código de retiro listo.');
+            return ok ? code : null;
+        },
         profilePhotoUrl: (path: string | null | undefined) => path && supabase ? supabase.storage.from('profile-photos').getPublicUrl(path).data.publicUrl : '',
         splitPay: (order: Order, label: string, items: Item[], method: Method, received: number, receipt: string | null) => {
             const amount = items.reduce((sum, item) => sum + item.price * item.quantity + (item.takeaway_fee || 0) * (item.takeaway_quantity || 0), 0);

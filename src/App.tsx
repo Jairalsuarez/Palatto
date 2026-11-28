@@ -1245,8 +1245,7 @@ function OrderEditor({ app, order, back, done, pay, waitForKitchen }: { app: Res
   const [items, setItems] = useState<Item[]>(order?.items || [])
   const [notes, setNotes] = useState(order?.notes || '')
   const [queuePrompt, setQueuePrompt] = useState(false)
-  const [pickupPrompt, setPickupPrompt] = useState(false)
-  const [pickupRequested, setPickupRequested] = useState(false)
+  const [pickupFollowup, setPickupFollowup] = useState<{ orderId: string; orderNumber: number; next: () => void; code?: string } | null>(null)
   const [customizeQueueTime, setCustomizeQueueTime] = useState(false)
   const [queueMinutes, setQueueMinutes] = useState(10)
   const [queueCharge, setQueueCharge] = useState(false)
@@ -1299,15 +1298,21 @@ function OrderEditor({ app, order, back, done, pay, waitForKitchen }: { app: Res
   }
   async function save(charge: boolean, prepMinutes?: number, askKitchen = false) {
     if (!items.length) { app.setError('Añade al menos un producto.'); return }
-    const saved = await app.saveOrder(order?.customer || 'Pedido', notes, items, order, allTakeaway, prepMinutes, askKitchen, pickupRequested)
+    const saved = await app.saveOrder(order?.customer || 'Pedido', notes, items, order, allTakeaway, prepMinutes, askKitchen)
     if (!saved) return
-    if (askKitchen) { waitForKitchen(String(saved), charge); return }
-    if (charge) pay(saved)
-    else done()
+    const continueFlow = () => {
+      if (askKitchen) { waitForKitchen(String(saved), charge); return }
+      if (charge) pay(saved)
+      else done()
+    }
+    if (!order && items.some(item => (item.takeaway_quantity || 0) > 0)) {
+      setPickupFollowup({ orderId: String(saved), orderNumber: nextNumber, next: continueFlow })
+      return
+    }
+    continueFlow()
   }
   async function submit(charge: boolean) {
     if (!items.length) { app.setError('Añade al menos un producto.'); return }
-    if (!order && items.some(item => (item.takeaway_quantity || 0) > 0)) { setQueueCharge(charge); setPickupPrompt(true); return }
     await continueSubmit(charge)
   }
   async function continueSubmit(charge: boolean) {
@@ -1403,10 +1408,19 @@ function OrderEditor({ app, order, back, done, pay, waitForKitchen }: { app: Res
       <ProductPicker app={app} selected={items} add={add}/>
     </Modal>}
 
-    {pickupPrompt && <Modal title="Código de retiro" close={() => setPickupPrompt(false)}>
-      <div className="queue-time-prompt"><p>¿Quieres proteger este pedido para llevar con un código aleatorio de 2 dígitos?</p>
-        <button type="button" className="btn btn-primary btn-lg btn-block" onClick={() => { setPickupRequested(true); setPickupPrompt(false); void continueSubmit(queueCharge) }}>Sí, usar código</button>
-        <button type="button" className="btn btn-ghost btn-block" onClick={() => { setPickupRequested(false); setPickupPrompt(false); void continueSubmit(queueCharge) }}>Continuar sin código</button>
+    {pickupFollowup && <Modal title={pickupFollowup.code ? 'Compartir código de retiro' : 'Pedido en cola'} close={() => { const current = pickupFollowup; setPickupFollowup(null); current.next() }}>
+      <div className="queue-time-prompt">
+        {!pickupFollowup.code ? <>
+          <p>El pedido <strong>#{number(pickupFollowup.orderNumber)}</strong> ya está en cola. ¿Quieres asignarle un código de retiro?</p>
+          {app.error && <p className="alert alert-error" role="alert">{app.error}</p>}
+          <button type="button" className="btn btn-primary btn-lg btn-block" disabled={app.busy} onClick={async () => { const code = await app.enablePickupCode(pickupFollowup.orderId); if (code) setPickupFollowup(current => current ? { ...current, code } : current) }}>{app.busy ? 'Creando código…' : 'Crear y compartir código'}</button>
+          <button type="button" className="btn btn-ghost btn-block" disabled={app.busy} onClick={() => { const current = pickupFollowup; setPickupFollowup(null); current.next() }}>Continuar sin código</button>
+        </> : <>
+          <p>Comparte este código con el cliente para que pueda retirar su pedido.</p>
+          <strong className="queue-time-picked pickup-followup-code">{pickupFollowup.code}</strong>
+          <a className="btn btn-primary btn-lg btn-block" href={`https://wa.me/?text=${encodeURIComponent(`Gracias por tu compra, retira tu pedido con el siguiente código: ${pickupFollowup.code}`)}`} target="_blank" rel="noreferrer">Compartir por WhatsApp</a>
+          <button type="button" className="btn btn-ghost btn-block" onClick={() => { const current = pickupFollowup; setPickupFollowup(null); current.next() }}>Continuar</button>
+        </>}
       </div>
     </Modal>}
 
@@ -2054,6 +2068,9 @@ function Notifications({ app, back, onOrder }: { app: Restaurant; back: () => vo
 
 function AccountPage({ app, installPrompt, installed, navigate, onInstall, kitchenSoundUrl, onKitchenSoundChange }: { app: Restaurant; installPrompt: Event | null; installed: boolean; navigate: (page: Page) => void; onInstall: () => void; kitchenSoundUrl: string; onKitchenSoundChange: (url: string) => void }) {
   const [passwordOpen, setPasswordOpen] = useState(false)
+  const [nameEditing, setNameEditing] = useState(false)
+  const [profileName, setProfileName] = useState(app.profile!.name)
+  const [nameMessage, setNameMessage] = useState('')
   const [photoBusy, setPhotoBusy] = useState(false)
   const [photoMessage, setPhotoMessage] = useState('')
   const [kitchenSoundName, setKitchenSoundName] = useState(() => kitchenSoundUrl === defaultKitchenSound ? 'Sonido predeterminado' : 'Sonido personalizado')
@@ -2137,6 +2154,14 @@ function AccountPage({ app, installPrompt, installed, navigate, onInstall, kitch
       <div><strong>{app.profile!.name}</strong><small>{labels[app.role]}</small></div>
       <span className="account-status"><Check size={15}/>Activa</span>
     </section>
+    {!nameEditing
+      ? <button className="account-link" type="button" onClick={() => { setProfileName(app.profile!.name); setNameMessage(''); setNameEditing(true) }}><span>Cambiar nombre de la cuenta</span><Pencil size={17}/></button>
+      : <form className="profile-name-form" onSubmit={async event => { event.preventDefault(); setNameMessage(''); if (await app.updateProfileName(profileName)) { setNameMessage('Nombre actualizado.'); setNameEditing(false) } }}>
+          <label>Nombre de la cuenta<input value={profileName} onChange={event => setProfileName(event.target.value)} minLength={2} maxLength={60} required autoFocus/></label>
+          {app.error && <p className="alert alert-error" role="alert">{app.error}</p>}
+          <div className="profile-name-actions"><button className="btn btn-primary" disabled={app.busy || profileName.trim() === app.profile!.name}>{app.busy ? 'Guardando…' : 'Guardar nombre'}</button><button className="btn btn-ghost" type="button" disabled={app.busy} onClick={() => setNameEditing(false)}>Cancelar</button></div>
+        </form>}
+    {nameMessage && <p className="tiny" role="status">{nameMessage}</p>}
     <label className="btn btn-ghost profile-photo-button">{photoBusy ? 'Guardando foto…' : 'Cambiar foto de perfil'}<input type="file" accept="image/jpeg,image/png,image/webp" disabled={photoBusy} onChange={async event => { const file = event.currentTarget.files?.[0]; event.currentTarget.value = ''; if (!file) return; setPhotoBusy(true); setPhotoMessage(''); try { await app.saveProfilePhoto(file); setPhotoMessage('Foto de perfil actualizada.') } catch (error) { setPhotoMessage(error instanceof Error ? error.message : 'No se pudo guardar la foto.') } finally { setPhotoBusy(false) } }}/></label>
     {photoMessage && <p className="tiny" role="status">{photoMessage}</p>}
     {app.role === 'cocinero' && <section className="settings-card kitchen-sound-settings">
