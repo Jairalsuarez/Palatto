@@ -107,7 +107,7 @@ export default function App() {
   const waitingWorkerRef = useRef<ServiceWorker | null>(null)
   const [page, setPage] = useState<Page>('pedidos')
   const [appearance, setAppearance] = useState(() => ({
-    theme: localStorage.getItem('palatto:theme') || 'system',
+    theme: localStorage.getItem('palatto:theme') || 'light',
     accent: localStorage.getItem('palatto:accent') || 'copper',
   }))
   const [editing, setEditing] = useState<Order | undefined>()
@@ -2224,7 +2224,7 @@ function AccountPage({ app, installPrompt, installed, navigate, appearance, onAp
           <input type="file" accept="image/jpeg,image/png,image/webp" onChange={event => { const file = event.currentTarget.files?.[0]; event.currentTarget.value = ''; if (file) { setPhotoMessage(''); setPhotoFile(file) } }}/>
         </label>
         <div className="profile-identity-copy"><strong>{app.profile!.name}</strong><span className="profile-role-label">{labels[app.role]}</span></div>
-        {!nameEditing && <button className="btn btn-ghost btn-sm profile-edit-name" type="button" onClick={() => { setProfileName(app.profile!.name); setNameMessage(''); setNameEditing(true) }}><Pencil size={15}/>Editar perfil</button>}
+        {!nameEditing && <button className="profile-edit-name" type="button" aria-label="Cambiar nombre" title="Cambiar nombre" onClick={() => { setProfileName(app.profile!.name); setNameMessage(''); setNameEditing(true) }}><Pencil size={17}/></button>}
       </div>
     </section>
     {nameEditing && <form className="profile-name-form" onSubmit={async event => { event.preventDefault(); setNameMessage(''); if (await app.updateProfileName(profileName)) { setNameMessage('Nombre actualizado.'); setNameEditing(false) } }}>
@@ -2269,7 +2269,7 @@ function AccountPage({ app, installPrompt, installed, navigate, appearance, onAp
     {section === 'personalizacion' && <section className="settings-card appearance-card">
       <div className="settings-card-title"><Pencil size={20}/><div><h2>Personaliza Palatto</h2><p>Se guarda en este dispositivo y también se aplica en la app instalada.</p></div></div>
       <fieldset className="appearance-field"><legend>Tema</legend><div className="appearance-options">{[['system','Sistema'],['light','Claro'],['dark','Oscuro']].map(([value,label]) => <button key={value} type="button" className={`appearance-choice ${appearance.theme === value ? 'selected' : ''}`} aria-pressed={appearance.theme === value} onClick={() => onAppearanceChange('theme', value)}><span className={`theme-preview ${value}`} aria-hidden="true"><i/><i/><i/></span><strong>{label}</strong>{appearance.theme === value && <Check size={16}/>}</button>)}</div></fieldset>
-      <fieldset className="appearance-field"><legend>Color de acento</legend><div className="accent-options">{[['copper','Cobre'],['green','Verde'],['blue','Azul']].map(([value,label]) => <button key={value} type="button" className={`accent-choice accent-${value} ${appearance.accent === value ? 'selected' : ''}`} aria-pressed={appearance.accent === value} onClick={() => onAppearanceChange('accent', value)}><i aria-hidden="true"/><span>{label}</span>{appearance.accent === value && <Check size={15}/>}</button>)}</div></fieldset>
+      <fieldset className="appearance-field"><legend>Color de acento</legend><div className="accent-options">{[['copper','Cobre'],['green','Verde'],['blue','Azul'],['plum','Ciruela'],['rose','Rosa'],['teal','Turquesa'],['slate','Grafito'],['gold','Dorado']].map(([value,label]) => <button key={value} type="button" className={`accent-choice accent-${value} ${appearance.accent === value ? 'selected' : ''}`} aria-pressed={appearance.accent === value} onClick={() => onAppearanceChange('accent', value)}><i aria-hidden="true"/><span>{label}</span>{appearance.accent === value && <Check size={15}/>}</button>)}</div></fieldset>
     </section>}
   </div>
 }
